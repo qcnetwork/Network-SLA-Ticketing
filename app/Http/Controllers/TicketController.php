@@ -106,6 +106,7 @@ class TicketController extends Controller
             'modem' => ['nullable', 'string', 'max:100'],
             'urgency_level' => ['nullable', Rule::in(TicketWorkflowService::URGENCY_LEVELS)],
             'upgrade_priority' => ['nullable', 'boolean'],
+            'category' => ['nullable', Rule::in(Ticket::CATEGORIES)],
             ...DocumentationPhotoStore::rules(),
         ], DocumentationPhotoStore::MESSAGES);
 

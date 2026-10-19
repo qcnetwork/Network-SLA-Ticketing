@@ -27,7 +27,7 @@ class TicketWorkflowService
      * Actions whose history and notification keep the full description (who did the work, old/new crew)
      * instead of only the text typed into the form.
      */
-    private const KEEPS_FULL_DESCRIPTION = [TicketAction::UBAH_TEKNISI, TicketAction::LAPOR_PERBAIKAN_SELESAI];
+    private const KEEPS_FULL_DESCRIPTION = [TicketAction::UBAH_TEKNISI, TicketAction::LAPOR_PERBAIKAN_SELESAI, TicketAction::UBAH_KATEGORI];
 
     public function __construct(
         private TicketNumberGenerator $numbers,
@@ -101,7 +101,7 @@ class TicketWorkflowService
      * Move a ticket through the workflow. Throws ValidationException when the
      * transition is not allowed from the ticket's current status.
      *
-     * @param  array{notes?: ?string, technician_ids?: array<int>, modem?: ?string, urgency_level?: ?string, upgrade_priority?: bool, photos?: array<UploadedFile>}  $data
+     * @param  array{notes?: ?string, technician_ids?: array<int>, modem?: ?string, urgency_level?: ?string, upgrade_priority?: bool, category?: ?string, photos?: array<UploadedFile>}  $data
      */
     public function transition(Ticket $ticket, TicketAction $action, User $actor, array $data = []): Ticket
     {
@@ -234,6 +234,19 @@ class TicketWorkflowService
                         throw ValidationException::withMessages(['photos' => 'Isi catatan atau lampirkan minimal satu foto/video dokumentasi']);
                     }
                     $description = "Dokumentasi oleh {$actor->name}: ".count($photos).' foto/video dilampirkan.';
+                    break;
+
+                case TicketAction::UBAH_KATEGORI:
+                    if ($ticket->status === TicketStatus::TUTUP) {
+                        throw ValidationException::withMessages(['category' => 'Kategori tiket yang sudah ditutup tidak dapat diubah']);
+                    }
+                    $category = $data['category'] ?? null;
+                    if (! $category || $category === $ticket->category) {
+                        throw ValidationException::withMessages(['category' => 'Pilih kategori kendala yang berbeda dari sebelumnya']);
+                    }
+                    $description = "Kategori kendala diubah oleh {$actor->name}: \"{$ticket->category}\" → \"{$category}\"."
+                        .($notes ? " Alasan: {$notes}" : '');
+                    $ticket->category = $category;
                     break;
 
                 case TicketAction::KONFIRMASI_NORMAL:
