@@ -1,0 +1,156 @@
+<?php
+
+namespace App\Models;
+
+use App\Enums\Role;
+use App\Enums\TicketPriority;
+use App\Enums\TicketStatus;
+use App\Models\Concerns\HasTechnicians;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
+
+class Ticket extends Model
+{
+    use HasFactory, HasTechnicians;
+
+    public const CATEGORIES = [
+        'LOS Merah / Kabel Putus',
+        'Internet Mati Total (LOS Hijau tapi RTO)',
+        'Internet Lambat / Ping Tinggi',
+        'WiFi Sering Putus / Jangkauan Sinyal',
+        'Router / Modem Rusak (Mati Total)',
+        'Lainnya',
+    ];
+
+    /**
+     * Common ONT/modem types, offered as suggestions; Helpdesk can still type any other model.
+     */
+    public const MODEM_SUGGESTIONS = [
+        'ZTE F609',
+        'ZTE F660',
+        'ZTE F670L',
+        'Huawei HG8245H',
+        'Huawei HG8245H5',
+        'Huawei EG8145V5',
+        'Fiberhome AN5506-04-F',
+        'Fiberhome HG6243C',
+    ];
+
+    /**
+     * A ticket waiting for customer confirmation closes itself after this long without a response.
+     */
+    public const CONFIRMATION_TIMEOUT_HOURS = 48;
+
+    /**
+     * Closed tickets drop off the dashboard this long after closing. They stay in the database,
+     * in reports and in search results.
+     */
+    public const CLOSED_VISIBLE_DAYS = 4;
+
+    protected $guarded = ['id'];
+
+    protected function casts(): array
+    {
+        return [
+            'status' => TicketStatus::class,
+            'priority' => TicketPriority::class,
+            'repair_started_at' => 'datetime',
+            'resolved_at' => 'datetime',
+            'closed_at' => 'datetime',
+        ];
+    }
+
+    public function getRouteKeyName(): string
+    {
+        return 'ticket_number';
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_id');
+    }
+
+    public function helpdesk(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_helpdesk_id');
+    }
+
+    public function incident(): BelongsTo
+    {
+        return $this->belongsTo(Incident::class);
+    }
+
+    public function histories(): HasMany
+    {
+        return $this->hasMany(TicketHistory::class)->orderBy('created_at')->orderBy('id');
+    }
+
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(TicketAttachment::class)->orderBy('id');
+    }
+
+    /**
+     * Limit the query to tickets the given user may see.
+     * Technicians only see repair tickets assigned to them.
+     */
+    public function scopeVisibleTo(Builder $query, User $user): Builder
+    {
+        if ($user->role === Role::TEKNISI) {
+            $query->where('status', TicketStatus::PERBAIKAN)->assignedTo($user);
+        }
+
+        return $query;
+    }
+
+    public function scopeFilter(Builder $query, array $filters): Builder
+    {
+        if (! empty($filters['status']) && $filters['status'] !== 'ALL') {
+            $query->where('status', $filters['status']);
+        }
+        if (! empty($filters['priority']) && $filters['priority'] !== 'ALL') {
+            $query->where('priority', $filters['priority']);
+        }
+        if (! empty($filters['search'])) {
+            $term = '%'.$filters['search'].'%';
+            $query->where(function (Builder $q) use ($term) {
+                $q->where('ticket_number', 'like', $term)
+                    ->orWhere('customer_name', 'like', $term)
+                    ->orWhere('customer_phone', 'like', $term)
+                    ->orWhere('customer_id', 'like', $term)
+                    ->orWhere('complaint', 'like', $term)
+                    ->orWhereHas('technicians', fn (Builder $t) => $t->where('name', 'like', $term));
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * When the ticket will be closed automatically, or null if it is not waiting for confirmation.
+     */
+    public function autoCloseAt(): ?Carbon
+    {
+        if ($this->status !== TicketStatus::MENUNGGU_KONFIRMASI || ! $this->resolved_at) {
+            return null;
+        }
+
+        return $this->resolved_at->copy()->addHours(self::CONFIRMATION_TIMEOUT_HOURS);
+    }
+
+    public function scopeWithoutStaleClosed(Builder $query): Builder
+    {
+        return $query->where(fn (Builder $q) => $q->where('status', '!=', TicketStatus::TUTUP)
+            ->orWhereNull('closed_at')
+            ->orWhere('closed_at', '>=', now()->subDays(self::CLOSED_VISIBLE_DAYS)));
+    }
+
+    public function scopeAwaitingConfirmation(Builder $query): Builder
+    {
+        return $query->where('status', TicketStatus::MENUNGGU_KONFIRMASI);
+    }
+}

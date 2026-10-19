@@ -1,0 +1,28 @@
+<?php
+
+namespace App\Providers;
+
+use App\Support\TransactionModeSQLiteConnector;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    /**
+     * Register any application services.
+     */
+    public function register(): void
+    {
+        // PHP 8.4+ applies the sqlite `transaction_mode` natively; older versions need our connector.
+        if (PHP_VERSION_ID < 80400) {
+            $this->app->bind('db.connector.sqlite', TransactionModeSQLiteConnector::class);
+        }
+    }
+
+    /**
+     * Bootstrap any application services.
+     */
+    public function boot(): void
+    {
+        //
+    }
+}
