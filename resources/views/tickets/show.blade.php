@@ -12,6 +12,7 @@
         $canConfirm = $can(A::KONFIRMASI_NORMAL) && $status === S::MENUNGGU_KONFIRMASI;
         $canUrgency = $can(A::CATATAN_URGENSI_CS) && ! in_array($status, [S::PROSES_CS, S::TUTUP], true);
         $canDocument = $can(A::CATATAN_DOKUMENTASI) && $status !== S::TUTUP;
+        $canRecategorize = $can(A::UBAH_KATEGORI) && $status !== S::TUTUP;
         $canForward = $can(A::TERUSKAN_HELPDESK) && $status === S::PROSES_CS;
         $canCsClose = $can(A::SELESAI_EDUKASI_CS) && in_array($status, [S::PROSES_CS, S::ANTRIAN_HELPDESK], true);
         $actionUrl = fn (A $action) => route('tickets.perform', [$ticket, $action->value]);
@@ -395,6 +396,25 @@
                 </div>
             @endif
 
+            @if ($canRecategorize)
+                <form method="POST" action="{{ $actionUrl(A::UBAH_KATEGORI) }}" class="card space-y-3 p-5">
+                    @csrf
+                    <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="tag" class="h-4 w-4 text-indigo-600"></i>Ubah Kategori Kendala</h3>
+                    <p class="text-sm text-slate-500">Sesuaikan kategori jika hasil pengecekan berbeda dari laporan awal CS.</p>
+                    <div>
+                        <label class="label" for="recategorize_category">Kategori sebenarnya</label>
+                        <select id="recategorize_category" name="category" class="input" required>
+                            @foreach (App\Models\Ticket::CATEGORIES as $category)
+                                <option value="{{ $category }}" @selected($category === $ticket->category)>{{ $category }}</option>
+                            @endforeach
+                        </select>
+                        <x-field-error name="category" />
+                    </div>
+                    <textarea name="notes" rows="2" class="input" maxlength="2000" placeholder="Alasan (opsional), contoh: Dicek di lokasi ternyata LOS merah, kabel drop putus"></textarea>
+                    <button class="btn-primary w-full"><i data-lucide="save" class="h-4 w-4"></i>Simpan Kategori</button>
+                </form>
+            @endif
+
             @if ($canDocument)
                 <form method="POST" action="{{ $actionUrl(A::CATATAN_DOKUMENTASI) }}" enctype="multipart/form-data" class="card space-y-3 p-5">
                     @csrf
@@ -406,7 +426,7 @@
                 </form>
             @endif
 
-            @if (! ($canForward || $canCsClose || $canClaim || $canResolve || $canReassign || $canRepair || $canConfirm || $canUrgency || $canDocument))
+            @if (! ($canForward || $canCsClose || $canClaim || $canResolve || $canReassign || $canRepair || $canConfirm || $canUrgency || $canDocument || $canRecategorize))
                 <div class="card p-5 text-sm text-slate-500">
                     @if ($status === S::TUTUP)
                         <p class="flex items-center gap-2 font-medium text-emerald-700"><i data-lucide="check-circle-2" class="h-4 w-4"></i>Tiket sudah selesai dan ditutup.</p>

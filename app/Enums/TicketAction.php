@@ -17,6 +17,7 @@ enum TicketAction: string
     case KONFIRMASI_TERKENDALA = 'KONFIRMASI_TERKENDALA';
     case CATATAN_URGENSI_CS = 'CATATAN_URGENSI_CS';
     case CATATAN_DOKUMENTASI = 'CATATAN_DOKUMENTASI';
+    case UBAH_KATEGORI = 'UBAH_KATEGORI';
     case GABUNG_GAMAS = 'GABUNG_GAMAS';
     case LEPAS_GAMAS = 'LEPAS_GAMAS';
     case GAMAS_SELESAI = 'GAMAS_SELESAI';
@@ -45,6 +46,8 @@ enum TicketAction: string
             self::MULAI_PERBAIKAN, self::LAPOR_PERBAIKAN_SELESAI => [Role::TEKNISI, Role::HELPDESK, Role::SPV],
             self::SELESAI_EDUKASI_CS, self::TERUSKAN_HELPDESK, self::KONFIRMASI_NORMAL, self::KONFIRMASI_TERKENDALA, self::CATATAN_URGENSI_CS => [Role::CS, Role::SPV],
             self::CATATAN_DOKUMENTASI => [Role::CS, Role::HELPDESK, Role::TEKNISI, Role::SPV],
+            // The real fault often only shows up once Helpdesk or the technician checks the line.
+            self::UBAH_KATEGORI => [Role::HELPDESK, Role::TEKNISI, Role::SPV],
             self::GABUNG_GAMAS, self::LEPAS_GAMAS => [Role::CS, Role::HELPDESK, Role::SPV],
             self::GAMAS_SELESAI => [Role::HELPDESK, Role::TEKNISI, Role::SPV],
             self::TUTUP_OTOMATIS => [],
@@ -67,6 +70,7 @@ enum TicketAction: string
             self::KONFIRMASI_TERKENDALA => 'Konfirmasi Terkendala',
             self::CATATAN_URGENSI_CS => 'Catatan Urgensi CS',
             self::CATATAN_DOKUMENTASI => 'Catatan Dokumentasi',
+            self::UBAH_KATEGORI => 'Ubah Kategori Kendala',
             self::GABUNG_GAMAS => 'Masuk Gamas',
             self::LEPAS_GAMAS => 'Dilepas dari Gamas',
             self::GAMAS_SELESAI => 'Gamas Selesai',

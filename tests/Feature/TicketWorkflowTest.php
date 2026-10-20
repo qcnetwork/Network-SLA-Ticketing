@@ -430,6 +430,43 @@ class TicketWorkflowTest extends TestCase
         $this->get($url, ['Range' => 'bytes=0-1023'])->assertStatus(206)->assertHeader('Content-Type', 'video/mp4');
     }
 
+    public function test_helpdesk_and_assigned_technician_can_correct_the_complaint_category(): void
+    {
+        $ticket = $this->createTicket(['category' => 'Internet Lambat / Ping Tinggi']);
+        $this->act($this->cs, $ticket, 'UBAH_KATEGORI', ['category' => 'Lainnya'])->assertForbidden();
+        $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertSee('Ubah Kategori Kendala');
+
+        $this->act($this->helpdesk, $ticket, 'UBAH_KATEGORI', ['category' => 'Internet Lambat / Ping Tinggi'])->assertSessionHasErrors('category');
+        $this->act($this->helpdesk, $ticket, 'UBAH_KATEGORI', ['category' => 'Bukan kategori'])->assertSessionHasErrors('category');
+
+        $this->act($this->helpdesk, $ticket, 'KLAIM_HELPDESK');
+        $this->act($this->helpdesk, $ticket, 'PERLU_TEKNISI', ['technician_ids' => [$this->technician->id]]);
+        $this->act($this->technician, $ticket, 'UBAH_KATEGORI', [
+            'category' => 'LOS Merah / Kabel Putus',
+            'notes' => 'Kabel drop putus di tiang',
+        ])->assertSessionHasNoErrors();
+
+        $ticket->refresh();
+        $this->assertSame('LOS Merah / Kabel Putus', $ticket->category);
+        $this->assertSame(TicketStatus::PERBAIKAN, $ticket->status);
+        $this->assertSame(
+            "Kategori kendala diubah oleh {$this->technician->name}: \"Internet Lambat / Ping Tinggi\" → \"LOS Merah / Kabel Putus\". Alasan: Kabel drop putus di tiang",
+            $ticket->histories()->reorder()->latest('id')->value('notes'),
+        );
+
+        $other = $this->createTicket();
+        $this->act($this->technician, $other, 'UBAH_KATEGORI', ['category' => 'Lainnya'])->assertForbidden();
+    }
+
+    public function test_closed_ticket_category_cannot_be_changed(): void
+    {
+        $ticket = $this->createTicket();
+        $this->act($this->cs, $ticket, 'SELESAI_EDUKASI_CS', ['notes' => 'Restart modem']);
+
+        $this->act($this->helpdesk, $ticket, 'UBAH_KATEGORI', ['category' => 'Lainnya'])->assertSessionHasErrors('category');
+        $this->assertSame(Ticket::CATEGORIES[0], $ticket->refresh()->category);
+    }
+
     public function test_technician_repair_report_can_include_photos(): void
     {
         Storage::fake(TicketAttachment::DISK);
