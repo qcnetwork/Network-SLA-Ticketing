@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Services\TelegramOutbox;
 use App\Support\TransactionModeSQLiteConnector;
 use Illuminate\Support\ServiceProvider;
 
@@ -16,6 +17,9 @@ class AppServiceProvider extends ServiceProvider
         if (PHP_VERSION_ID < 80400) {
             $this->app->bind('db.connector.sqlite', TransactionModeSQLiteConnector::class);
         }
+
+        // One outbox per request, so everything the request sends to Telegram goes out together.
+        $this->app->scoped(TelegramOutbox::class);
     }
 
     /**

@@ -8,6 +8,7 @@ use App\Models\Incident;
 use App\Models\Setting;
 use App\Models\TelegramLog;
 use App\Models\Ticket;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -28,46 +29,108 @@ class TelegramService
      */
     public function send(string $text, array $metadata = []): array
     {
+        return $this->sendMany([[$text, $metadata]])[0][0];
+    }
+
+    /**
+     * Send several log messages, plus any other Bot API calls such as the master list edit, all at once:
+     * Telegram takes ~0.7 s per call and the user waits for it, so a request waits for one round trip
+     * instead of one per call.
+     *
+     * @param  array<int, array{0: string, 1: array}>  $messages  [text, metadata] pairs for the log topic
+     * @param  array<string, array{0: string, 1: array}>  $calls  extra [method, payload] calls, keyed by name
+     * @return array{0: array<int, array{success: bool, error: ?string}>, 1: array<string, array>} results per message, decoded responses per extra call
+     */
+    public function sendMany(array $messages, array $calls = []): array
+    {
         $botToken = (string) Setting::read('bot_token');
         $chatId = (string) Setting::read('chat_id');
         $topicId = (string) Setting::read('log_topic_id');
         $configured = $botToken !== '' && $chatId !== '';
-        $success = ! $configured;
-        $error = null;
 
+        $requests = [];
         if ($configured) {
-            try {
-                $response = Http::timeout(10)->asJson()->post("https://api.telegram.org/bot{$botToken}/sendMessage", array_filter([
+            foreach ($messages as $i => [$text]) {
+                $requests["message:{$i}"] = ['sendMessage', array_filter([
                     'chat_id' => $chatId,
                     'message_thread_id' => $topicId !== '' ? (int) $topicId : null,
                     'text' => $text,
                     'parse_mode' => 'HTML',
-                ]));
-                $success = (bool) $response->json('ok');
-                if (! $success) {
-                    $error = $response->json('description') ?? 'Gagal mengirim ke Telegram API';
-                }
-            } catch (Throwable $e) {
-                // HTTP client errors quote the request URL, which carries the bot token.
-                $error = str_replace($botToken, '***', $e->getMessage());
-                Log::warning('Telegram sendMessage failed', ['error' => $error, 'exception' => $e::class]);
+                ])];
+            }
+            foreach ($calls as $key => $call) {
+                $requests["call:{$key}"] = $call;
+            }
+        }
+        $responses = $this->callMany($botToken, $requests);
+
+        $results = [];
+        foreach ($messages as $i => [$text, $metadata]) {
+            $response = $responses["message:{$i}"] ?? null;
+            $success = ! $configured || ($response['ok'] ?? false);
+            $error = $success ? null : ($response['description'] ?? 'Gagal mengirim ke Telegram API');
+            if ($error) {
+                Log::warning('Telegram sendMessage failed', ['error' => $error]);
+            }
+
+            TelegramLog::create([
+                'message' => $text,
+                'is_real_sent' => $configured && $success,
+                'simulated' => ! $configured,
+                'error' => $error,
+                'metadata' => $metadata,
+            ]);
+            $results[] = ['success' => $success, 'error' => $error];
+        }
+
+        if ($messages) {
+            $oldestKeptId = TelegramLog::query()->orderByDesc('id')->skip(TelegramLog::KEEP - 1)->value('id');
+            if ($oldestKeptId) {
+                TelegramLog::query()->where('id', '<', $oldestKeptId)->delete();
             }
         }
 
-        TelegramLog::create([
-            'message' => $text,
-            'is_real_sent' => $configured && $success,
-            'simulated' => ! $configured,
-            'error' => $error,
-            'metadata' => $metadata,
-        ]);
-
-        $oldestKeptId = TelegramLog::query()->orderByDesc('id')->skip(TelegramLog::KEEP - 1)->value('id');
-        if ($oldestKeptId) {
-            TelegramLog::query()->where('id', '<', $oldestKeptId)->delete();
+        $callResponses = [];
+        foreach (array_keys($calls) as $key) {
+            $callResponses[$key] = $responses["call:{$key}"] ?? ['ok' => false, 'description' => 'Bot Telegram belum dikonfigurasi'];
         }
 
-        return ['success' => $success, 'error' => $error];
+        return [$results, $callResponses];
+    }
+
+    /**
+     * Run Bot API calls concurrently. Each result is the decoded response, or an error description
+     * when the request itself failed.
+     *
+     * @param  array<string, array{0: string, 1: array}>  $requests
+     * @return array<string, array>
+     */
+    public function callMany(string $botToken, array $requests): array
+    {
+        if ($requests === []) {
+            return [];
+        }
+
+        // HTTP client errors quote the request URL, which carries the bot token.
+        $failure = fn (Throwable $e) => ['ok' => false, 'description' => str_replace($botToken, '***', $e->getMessage())];
+
+        try {
+            $responses = Http::pool(fn (Pool $pool) => collect($requests)
+                ->map(fn (array $request, string $key) => $pool->as($key)->timeout(10)->asJson()
+                    ->post("https://api.telegram.org/bot{$botToken}/{$request[0]}", $request[1]))
+                ->all());
+        } catch (Throwable $e) {
+            return array_map(fn () => $failure($e), $requests);
+        }
+
+        return collect($requests)->map(function (array $request, string $key) use ($responses, $failure) {
+            $response = $responses[$key] ?? null;
+            if ($response instanceof Throwable) {
+                return $failure($response);
+            }
+
+            return (array) $response?->json() ?: ['ok' => false, 'description' => 'Respon Telegram tidak valid'];
+        })->all();
     }
 
     public static function escape(?string $value): string

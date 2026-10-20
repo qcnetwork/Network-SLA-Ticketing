@@ -7,7 +7,6 @@ use App\Enums\IncidentStatus;
 use App\Enums\Role;
 use App\Enums\TicketAction;
 use App\Enums\TicketStatus;
-use App\Jobs\SendTelegramMessage;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Setting;
@@ -38,6 +37,7 @@ class IncidentWorkflowService
 
     public function __construct(
         private TelegramService $telegram,
+        private TelegramOutbox $outbox,
         private DocumentationPhotoStore $photoStore,
     ) {}
 
@@ -287,7 +287,7 @@ class IncidentWorkflowService
     {
         $incident->loadMissing('technicians')->loadCount('tickets');
 
-        SendTelegramMessage::dispatchAfterResponse(
+        $this->outbox->push(
             $this->telegram->incidentMessage($incident, $action, $notes, $actor->name),
             ['incident' => $incident->incident_number, 'action' => $action->value],
         );

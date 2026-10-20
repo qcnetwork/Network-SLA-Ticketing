@@ -7,7 +7,6 @@ use App\Enums\Role;
 use App\Enums\TicketAction;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
-use App\Jobs\SendTelegramMessage;
 use App\Models\Incident;
 use App\Models\Setting;
 use App\Models\Ticket;
@@ -33,6 +32,7 @@ class TicketWorkflowService
     public function __construct(
         private TicketNumberGenerator $numbers,
         private TelegramService $telegram,
+        private TelegramOutbox $outbox,
         private DocumentationPhotoStore $photoStore,
     ) {}
 
@@ -94,7 +94,7 @@ class TicketWorkflowService
 
         // Gamas tickets are covered by the gamas notifications; one message per customer would flood the group.
         if (! $incident && Setting::read('notify_on_new_ticket') === '1') {
-            SendTelegramMessage::dispatchAfterResponse(
+            $this->outbox->push(
                 $this->telegram->ticketCreatedMessage($ticket),
                 ['ticket' => $ticket->ticket_number, 'action' => TicketAction::TIKET_DIBUAT->value],
             );
@@ -374,7 +374,7 @@ class TicketWorkflowService
         });
 
         if (Setting::read('notify_on_status_change') === '1') {
-            SendTelegramMessage::dispatchAfterResponse(
+            $this->outbox->push(
                 $this->telegram->customerUpdatedMessage($ticket, $changes->all(), $actor->name),
                 ['ticket' => $ticket->ticket_number, 'action' => TicketAction::UBAH_DATA_PELANGGAN->value],
             );
@@ -419,7 +419,7 @@ class TicketWorkflowService
         // A forwarded ticket is new to the helpdesk group, so it is announced like a new ticket.
         if ($action === TicketAction::TERUSKAN_HELPDESK) {
             if (Setting::read('notify_on_new_ticket') === '1') {
-                SendTelegramMessage::dispatchAfterResponse(
+                $this->outbox->push(
                     $this->telegram->newTicketMessage($ticket, trim((string) ($data['notes'] ?? '')) ?: null),
                     ['ticket' => $ticket->ticket_number, 'action' => 'NEW_TICKET'],
                 );
@@ -439,7 +439,7 @@ class TicketWorkflowService
             default => $this->telegram->statusUpdateMessage($ticket, $previous, $notes, $actor->name),
         };
 
-        SendTelegramMessage::dispatchAfterResponse($text, ['ticket' => $ticket->ticket_number, 'action' => $action->value]);
+        $this->outbox->push($text, ['ticket' => $ticket->ticket_number, 'action' => $action->value]);
     }
 
     /**

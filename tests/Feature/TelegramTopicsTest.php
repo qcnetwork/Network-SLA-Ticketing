@@ -11,6 +11,7 @@ use App\Services\TelegramTicketList;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class TelegramTopicsTest extends TestCase
@@ -97,11 +98,22 @@ class TelegramTopicsTest extends TestCase
         $ticket = $this->createTicket('Budi');
         $this->actingAs($this->cs)->post("/tickets/{$ticket->ticket_number}/actions/TERUSKAN_HELPDESK")->assertSessionHasNoErrors();
 
-        // The test app replays earlier requests' after-response jobs on every later request, so compare distinct messages.
-        $logTexts = collect($this->listPosts(self::LOG_TOPIC))->map(fn (Request $request) => $request['text'])->unique()->values();
+        $logTexts = collect($this->listPosts(self::LOG_TOPIC))->map(fn (Request $request) => $request['text']);
         $this->assertCount(2, $logTexts);
         $this->assertStringContainsString('TIKET DIBUAT · PROSES CS', $logTexts[0]);
         $this->assertStringContainsString('TIKET BARU MASUK', $logTexts[1]);
+    }
+
+    public function test_a_request_sends_its_log_message_and_list_update_together(): void
+    {
+        $ticket = $this->createTicket('Budi');
+        $sentBefore = Http::recorded()->count();
+
+        $this->actingAs($this->cs)->post("/tickets/{$ticket->ticket_number}/actions/TERUSKAN_HELPDESK")->assertSessionHasNoErrors();
+
+        // Exactly one log message and one list edit, each sent once.
+        $sent = Http::recorded()->slice($sentBefore)->map(fn ($pair) => Str::afterLast($pair[0]->url(), '/'))->values()->all();
+        $this->assertEqualsCanonicalizing(['sendMessage', 'editMessageText'], $sent);
     }
 
     public function test_log_messages_use_the_general_chat_without_a_topic(): void
