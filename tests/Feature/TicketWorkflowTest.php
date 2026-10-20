@@ -69,8 +69,10 @@ class TicketWorkflowTest extends TestCase
         $this->assertSame('6281234567890', $ticket->customer_phone);
         $this->assertSame($this->cs->id, $ticket->created_by_id);
         $this->assertCount(1, $ticket->histories);
-        // The helpdesk group is not pinged while CS is still coordinating with the customer.
-        $this->assertSame(0, TelegramLog::query()->count());
+        // The new ticket is logged right away, while CS is still coordinating with the customer.
+        $created = TelegramLog::query()->sole()->message;
+        $this->assertStringContainsString('TIKET DIBUAT · PROSES CS', $created);
+        $this->assertStringContainsString("Dibuat oleh:</b> {$this->cs->name} (Customer Service)", $created);
 
         // Helpdesk cannot pick up the ticket and CS cannot ping the group before it is forwarded.
         $this->act($this->helpdesk, $ticket, 'KLAIM_HELPDESK')->assertSessionHasErrors('action');
@@ -84,7 +86,7 @@ class TicketWorkflowTest extends TestCase
         $ticket->refresh();
         $this->assertSame(TicketStatus::ANTRIAN_HELPDESK, $ticket->status);
         $this->assertSame('TERUSKAN_HELPDESK', $ticket->histories->last()->action->value);
-        $message = TelegramLog::query()->sole()->message;
+        $message = TelegramLog::query()->latest('id')->value('message');
         $this->assertStringContainsString('TIKET BARU MASUK', $message);
         $this->assertStringContainsString('Lampu LOS merah', $message);
 
@@ -102,7 +104,7 @@ class TicketWorkflowTest extends TestCase
 
         $ticket->refresh();
         $this->assertSame(TicketStatus::TUTUP, $ticket->status);
-        $this->assertSame(0, TelegramLog::query()->count());
+        $this->assertStringContainsString('PROSES CS', TelegramLog::query()->latest('id')->value('message'));
     }
 
     public function test_ticket_creation_is_validated_and_role_limited(): void

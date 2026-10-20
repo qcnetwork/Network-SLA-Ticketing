@@ -75,6 +75,27 @@ class TelegramService
         return htmlspecialchars((string) $value, ENT_NOQUOTES, 'UTF-8');
     }
 
+    /**
+     * Logged as soon as the complaint is recorded, by whoever took it (CS, Helpdesk or a supervisor).
+     */
+    public function ticketCreatedMessage(Ticket $ticket): string
+    {
+        $e = self::escape(...);
+        $creator = $ticket->creator;
+
+        return "📥 <b>[TIKET DIBUAT · PROSES CS]</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."🎫 <b>No. Tiket:</b> <code>{$e($ticket->ticket_number)}</code>\n"
+            ."👤 <b>Pelanggan:</b> {$e($ticket->customer_name)}\n"
+            ."⚠️ <b>Kategori:</b> {$e($ticket->category)}\n"
+            ."📝 <b>Kendala:</b> {$e($ticket->complaint)}\n"
+            .'✍️ <b>Dibuat oleh:</b> '.($creator ? "{$e($creator->name)} ({$creator->role->label()})" : '-')."\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."{$ticket->status->telegramLabel()}\n"
+            ."⏰ <i>Waktu: {$ticket->created_at->format('d/m/Y H:i')}</i>\n"
+            .'<i>Tiket masih dalam tahap koordinasi dengan pelanggan.</i>';
+    }
+
     public function newTicketMessage(Ticket $ticket, ?string $csNotes = null): string
     {
         $e = self::escape(...);

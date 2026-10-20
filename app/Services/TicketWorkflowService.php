@@ -87,7 +87,14 @@ class TicketWorkflowService
             return $ticket;
         });
 
-        // The helpdesk group hears about the ticket once CS forwards it; gamas tickets are covered by the gamas notifications.
+        // Gamas tickets are covered by the gamas notifications; one message per customer would flood the group.
+        if (! $incident && Setting::read('notify_on_new_ticket') === '1') {
+            SendTelegramMessage::dispatchAfterResponse(
+                $this->telegram->ticketCreatedMessage($ticket),
+                ['ticket' => $ticket->ticket_number, 'action' => TicketAction::TIKET_DIBUAT->value],
+            );
+        }
+
         return $ticket;
     }
 
@@ -346,8 +353,7 @@ class TicketWorkflowService
             return;
         }
 
-        // The helpdesk group never saw a ticket that CS handled on their own.
-        if ($previous === TicketStatus::PROSES_CS || Setting::read('notify_on_status_change') !== '1') {
+        if (Setting::read('notify_on_status_change') !== '1') {
             return;
         }
 

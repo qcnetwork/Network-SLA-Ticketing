@@ -67,10 +67,21 @@ class TelegramTopicsTest extends TestCase
     /**
      * @return array<Request>
      */
-    private function listPosts(): array
+    private function listPosts(?int $topic = self::LIST_TOPIC): array
     {
         return Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/sendMessage')
-            && ($request['message_thread_id'] ?? null) === self::LIST_TOPIC)->map(fn ($pair) => $pair[0])->all();
+            && ($request['message_thread_id'] ?? null) === $topic)->map(fn ($pair) => $pair[0])->values()->all();
+    }
+
+    /**
+     * The message ID Telegram gave the latest master list post.
+     */
+    private function lastListMessageId(int $topic = self::LIST_TOPIC): string
+    {
+        $response = Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/sendMessage')
+            && ($request['message_thread_id'] ?? null) === $topic)->last()[1];
+
+        return (string) $response['result']['message_id'];
     }
 
     /**
@@ -78,7 +89,7 @@ class TelegramTopicsTest extends TestCase
      */
     private function listEdits(): array
     {
-        return Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/editMessageText'))->map(fn ($pair) => $pair[0])->all();
+        return Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/editMessageText'))->map(fn ($pair) => $pair[0])->values()->all();
     }
 
     public function test_ticket_notifications_go_to_the_log_topic(): void
@@ -86,9 +97,11 @@ class TelegramTopicsTest extends TestCase
         $ticket = $this->createTicket('Budi');
         $this->actingAs($this->cs)->post("/tickets/{$ticket->ticket_number}/actions/TERUSKAN_HELPDESK")->assertSessionHasNoErrors();
 
-        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/sendMessage')
-            && $request['message_thread_id'] === self::LOG_TOPIC
-            && str_contains($request['text'], 'TIKET BARU MASUK'));
+        // The test app replays earlier requests' after-response jobs on every later request, so compare distinct messages.
+        $logTexts = collect($this->listPosts(self::LOG_TOPIC))->map(fn (Request $request) => $request['text'])->unique()->values();
+        $this->assertCount(2, $logTexts);
+        $this->assertStringContainsString('TIKET DIBUAT · PROSES CS', $logTexts[0]);
+        $this->assertStringContainsString('TIKET BARU MASUK', $logTexts[1]);
     }
 
     public function test_log_messages_use_the_general_chat_without_a_topic(): void
@@ -110,13 +123,14 @@ class TelegramTopicsTest extends TestCase
         $this->assertCount(1, $posts);
         $this->assertStringContainsString('MASTER LIST TIKET', $posts[0]['text']);
         $this->assertStringContainsString("{$ticket->ticket_number}</code> · Budi Santoso · 🎧 Proses CS", $posts[0]['text']);
-        $this->assertSame('100', Setting::read('ticket_list_message_id'));
+        $listMessageId = $this->lastListMessageId();
+        $this->assertSame($listMessageId, Setting::read('ticket_list_message_id'));
 
         $this->actingAs($this->cs)->post("/tickets/{$ticket->ticket_number}/actions/TERUSKAN_HELPDESK");
 
         $this->assertCount(1, $this->listPosts());
         $edit = collect($this->listEdits())->last();
-        $this->assertSame(100, $edit['message_id']);
+        $this->assertSame((int) $listMessageId, $edit['message_id']);
         $this->assertStringContainsString('🟡 Antrian Helpdesk', $edit['text']);
     }
 
@@ -131,7 +145,7 @@ class TelegramTopicsTest extends TestCase
         $posts = $this->listPosts();
         $this->assertCount(2, $posts);
         $this->assertStringContainsString('Budi', $posts[1]['text']);
-        $this->assertSame('101', Setting::read('ticket_list_message_id'));
+        $this->assertSame($this->lastListMessageId(), Setting::read('ticket_list_message_id'));
         $this->assertSame(now()->toDateString(), Setting::read('ticket_list_date'));
     }
 
@@ -181,7 +195,7 @@ class TelegramTopicsTest extends TestCase
         app(TelegramTicketList::class)->refresh();
 
         $this->assertCount(2, $this->listPosts());
-        $this->assertSame('101', Setting::read('ticket_list_message_id'));
+        $this->assertSame($this->lastListMessageId(), Setting::read('ticket_list_message_id'));
     }
 
     public function test_settings_store_topics_and_restart_the_list_when_it_moves(): void
@@ -197,7 +211,9 @@ class TelegramTopicsTest extends TestCase
         ])->assertSessionHasNoErrors();
 
         $this->assertSame('33', Setting::read('list_topic_id'));
-        Http::assertSent(fn (Request $request) => str_ends_with($request->url(), '/sendMessage') && ($request['message_thread_id'] ?? null) === 33);
-        $this->assertSame('101', Setting::read('ticket_list_message_id'));
+        $posts = $this->listPosts(33);
+        $this->assertCount(1, $posts);
+        $this->assertStringContainsString('MASTER LIST TIKET', $posts[0]['text']);
+        $this->assertSame($this->lastListMessageId(33), Setting::read('ticket_list_message_id'));
     }
 }
