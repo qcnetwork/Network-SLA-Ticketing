@@ -29,6 +29,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/tickets/{ticket}', [TicketController::class, 'show'])->name('tickets.show');
     Route::delete('/tickets/{ticket}', [TicketController::class, 'destroy'])->name('tickets.destroy');
     Route::post('/tickets/{ticket}/actions/{action}', [TicketController::class, 'perform'])->name('tickets.perform');
+    Route::put('/tickets/{ticket}/customer', [TicketController::class, 'updateCustomer'])->name('tickets.customer.update');
     Route::get('/tickets/{ticket}/attachments/{attachment}', [TicketController::class, 'attachment'])
         ->scopeBindings()->name('tickets.attachment');
     Route::get('/tickets/{ticket}/whatsapp', [TicketController::class, 'whatsapp'])->name('tickets.whatsapp');

@@ -123,6 +123,29 @@ class TicketController extends Controller
         return redirect()->route('tickets.show', $ticket)->with('success', "{$action->label()} berhasil disimpan");
     }
 
+    public function updateCustomer(Request $request, Ticket $ticket): RedirectResponse
+    {
+        $this->authorize('perform', [$ticket, TicketAction::UBAH_DATA_PELANGGAN]);
+
+        $data = $request->validate([
+            'customer_name' => ['required', 'string', 'max:150'],
+            'customer_phone' => ['required', 'string', 'max:30', 'regex:/^[0-9+\-\s()]{8,}$/'],
+            'customer_id' => ['nullable', 'string', 'max:50'],
+            'customer_address' => ['nullable', 'string', 'max:255'],
+        ], [
+            'customer_phone.regex' => 'Nomor WhatsApp tidak valid',
+        ], [
+            'customer_name' => 'nama pelanggan',
+            'customer_phone' => 'nomor WhatsApp',
+        ]);
+
+        $ticket = $this->workflow->updateCustomer($ticket, $data, $request->user());
+
+        return redirect()->route('tickets.show', $ticket)->with('success', $ticket->hasLocation()
+            ? 'Data pelanggan berhasil diperbarui. Titik lokasi tersimpan.'
+            : 'Data pelanggan berhasil diperbarui');
+    }
+
     public function attachment(Ticket $ticket, TicketAttachment $attachment): BinaryFileResponse
     {
         $this->authorize('view', $ticket);

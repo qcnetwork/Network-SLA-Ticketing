@@ -96,6 +96,25 @@ class TelegramService
             .'<i>Tiket masih dalam tahap koordinasi dengan pelanggan.</i>';
     }
 
+    /**
+     * @param  array<string>  $changes
+     */
+    public function customerUpdatedMessage(Ticket $ticket, array $changes, string $actor): string
+    {
+        $e = self::escape(...);
+
+        return "✏️ <b>[DATA PELANGGAN DIPERBARUI]</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."🎫 <b>No. Tiket:</b> <code>{$e($ticket->ticket_number)}</code>\n"
+            ."👤 <b>Pelanggan:</b> {$e($ticket->customer_name)}\n"
+            ."⚡ <b>Status Saat Ini:</b> {$ticket->status->label()}\n"
+            ."👤 <b>Petugas:</b> {$e($actor)}\n"
+            ."📝 <b>Perubahan:</b>\n".collect($changes)->map(fn (string $change) => '• '.$e($change))->implode("\n")."\n"
+            .($ticket->hasLocation() ? "🗺️ <b>Peta:</b> {$e($ticket->mapsUrl())}\n" : '')
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            .'⏰ <i>'.now()->format('d/m/Y H:i').'</i>';
+    }
+
     public function newTicketMessage(Ticket $ticket, ?string $csNotes = null): string
     {
         $e = self::escape(...);

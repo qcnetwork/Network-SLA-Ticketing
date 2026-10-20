@@ -18,6 +18,7 @@ enum TicketAction: string
     case CATATAN_URGENSI_CS = 'CATATAN_URGENSI_CS';
     case CATATAN_DOKUMENTASI = 'CATATAN_DOKUMENTASI';
     case UBAH_KATEGORI = 'UBAH_KATEGORI';
+    case UBAH_DATA_PELANGGAN = 'UBAH_DATA_PELANGGAN';
     case GABUNG_GAMAS = 'GABUNG_GAMAS';
     case LEPAS_GAMAS = 'LEPAS_GAMAS';
     case GAMAS_SELESAI = 'GAMAS_SELESAI';
@@ -29,7 +30,7 @@ enum TicketAction: string
      */
     public function isPerformable(): bool
     {
-        return ! in_array($this, [self::TIKET_DIBUAT, self::GABUNG_GAMAS, self::LEPAS_GAMAS, self::GAMAS_SELESAI, self::TUTUP_OTOMATIS], true);
+        return ! in_array($this, [self::TIKET_DIBUAT, self::UBAH_DATA_PELANGGAN, self::GABUNG_GAMAS, self::LEPAS_GAMAS, self::GAMAS_SELESAI, self::TUTUP_OTOMATIS], true);
     }
 
     /**
@@ -48,6 +49,8 @@ enum TicketAction: string
             self::CATATAN_DOKUMENTASI => [Role::CS, Role::HELPDESK, Role::TEKNISI, Role::SPV],
             // The real fault often only shows up once Helpdesk or the technician checks the line.
             self::UBAH_KATEGORI => [Role::HELPDESK, Role::TEKNISI, Role::SPV],
+            // Whoever talks to the customer can complete their details, e.g. a shareloc sent after the ticket was made.
+            self::UBAH_DATA_PELANGGAN => [Role::CS, Role::HELPDESK, Role::SPV],
             self::GABUNG_GAMAS, self::LEPAS_GAMAS => [Role::CS, Role::HELPDESK, Role::SPV],
             self::GAMAS_SELESAI => [Role::HELPDESK, Role::TEKNISI, Role::SPV],
             self::TUTUP_OTOMATIS => [],
@@ -71,6 +74,7 @@ enum TicketAction: string
             self::CATATAN_URGENSI_CS => 'Catatan Urgensi CS',
             self::CATATAN_DOKUMENTASI => 'Catatan Dokumentasi',
             self::UBAH_KATEGORI => 'Ubah Kategori Kendala',
+            self::UBAH_DATA_PELANGGAN => 'Ubah Data Pelanggan',
             self::GABUNG_GAMAS => 'Masuk Gamas',
             self::LEPAS_GAMAS => 'Dilepas dari Gamas',
             self::GAMAS_SELESAI => 'Gamas Selesai',

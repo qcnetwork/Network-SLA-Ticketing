@@ -13,6 +13,7 @@
         $canUrgency = $can(A::CATATAN_URGENSI_CS) && ! in_array($status, [S::PROSES_CS, S::TUTUP], true);
         $canDocument = $can(A::CATATAN_DOKUMENTASI) && $status !== S::TUTUP;
         $canRecategorize = $can(A::UBAH_KATEGORI) && $status !== S::TUTUP;
+        $canEditCustomer = $can(A::UBAH_DATA_PELANGGAN) && $status !== S::TUTUP;
         $canForward = $can(A::TERUSKAN_HELPDESK) && $status === S::PROSES_CS;
         $canCsClose = $can(A::SELESAI_EDUKASI_CS) && in_array($status, [S::PROSES_CS, S::ANTRIAN_HELPDESK], true);
         $actionUrl = fn (A $action) => route('tickets.perform', [$ticket, $action->value]);
@@ -81,9 +82,50 @@
     <div class="grid gap-6 lg:grid-cols-3 lg:grid-rows-[auto_1fr]">
         <div class="space-y-6 lg:col-span-2">
             {{-- Customer & complaint --}}
-            <section class="card p-5">
-                <h2 class="mb-4 flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="user" class="h-4 w-4"></i>Data Pelanggan</h2>
-                <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+            <section class="card p-5" x-data="{ editing: @js($errors->hasAny(['customer', 'customer_name', 'customer_phone', 'customer_id', 'customer_address'])) }">
+                <div class="mb-4 flex items-center justify-between gap-3">
+                    <h2 class="flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="user" class="h-4 w-4"></i>Data Pelanggan</h2>
+                    @if ($canEditCustomer)
+                        <button type="button" x-show="! editing" @click="editing = true" class="btn-secondary px-3 py-1.5 text-xs"><i data-lucide="pencil" class="h-3.5 w-3.5"></i>Ubah</button>
+                    @endif
+                </div>
+
+                @if ($canEditCustomer)
+                    <form method="POST" action="{{ route('tickets.customer.update', $ticket) }}" x-show="editing" x-cloak class="space-y-4">
+                        @csrf
+                        @method('PUT')
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label class="label" for="edit_customer_name">Nama Pelanggan <span class="text-rose-500">*</span></label>
+                                <input id="edit_customer_name" name="customer_name" value="{{ old('customer_name', $ticket->customer_name) }}" class="input" required maxlength="150">
+                                <x-field-error name="customer_name" />
+                            </div>
+                            <div>
+                                <label class="label" for="edit_customer_phone">No. WhatsApp <span class="text-rose-500">*</span></label>
+                                <input id="edit_customer_phone" name="customer_phone" value="{{ old('customer_phone', $ticket->customer_phone) }}" class="input" required inputmode="tel">
+                                <x-field-error name="customer_phone" />
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label class="label" for="edit_customer_id">ID Pelanggan</label>
+                                <input id="edit_customer_id" name="customer_id" value="{{ old('customer_id', $ticket->customer_id) }}" class="input" maxlength="50">
+                                <x-field-error name="customer_id" />
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label class="label" for="edit_customer_address">Alamat / Shareloc</label>
+                                <input id="edit_customer_address" name="customer_address" value="{{ old('customer_address', $ticket->customer_address) }}" class="input" maxlength="255" placeholder="Alamat, link shareloc Google Maps/WhatsApp, atau koordinat (-6.2088, 106.8456)">
+                                <p class="mt-1 text-xs text-slate-500">Tempel link shareloc dari pelanggan, titik lokasinya otomatis terbaca.</p>
+                                <x-field-error name="customer_address" />
+                            </div>
+                        </div>
+                        <x-field-error name="customer" />
+                        <div class="flex justify-end gap-2">
+                            <button type="button" @click="editing = false" class="btn-secondary">Batal</button>
+                            <button class="btn-primary"><i data-lucide="save" class="h-4 w-4"></i>Simpan</button>
+                        </div>
+                    </form>
+                @endif
+
+                <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2" x-show="! editing">
                     <div><dt class="text-xs text-slate-500">Nama</dt><dd class="font-medium">{{ $ticket->customer_name }}</dd></div>
                     <div><dt class="text-xs text-slate-500">ID Pelanggan</dt><dd class="font-medium">{{ $ticket->customer_id ?? '-' }}</dd></div>
                     <div><dt class="text-xs text-slate-500">WhatsApp</dt><dd class="font-medium">{{ $ticket->customer_phone }}</dd></div>
@@ -97,6 +139,9 @@
                                 {{ $ticket->customer_address ?: '-' }}
                             @endif
                         </dd>
+                        @if ($canEditCustomer && ! $ticket->hasLocation())
+                            <p class="mt-1 text-xs text-slate-400">Belum ada titik lokasi. Klik Ubah untuk menambahkan shareloc.</p>
+                        @endif
                     </div>
                     @if ($ticket->hasLocation())
                         @php($coordinates = App\Support\GeoLocation::format($ticket->latitude).', '.App\Support\GeoLocation::format($ticket->longitude))

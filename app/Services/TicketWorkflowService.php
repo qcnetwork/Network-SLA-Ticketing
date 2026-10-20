@@ -314,6 +314,76 @@ class TicketWorkflowService
     }
 
     /**
+     * Correct or complete the customer's details, e.g. a shareloc the customer sent after CS made the ticket.
+     *
+     * @param  array{customer_name: string, customer_phone: string, customer_id?: ?string, customer_address?: ?string}  $data
+     */
+    public function updateCustomer(Ticket $ticket, array $data, User $actor): Ticket
+    {
+        $this->ensureRole(TicketAction::UBAH_DATA_PELANGGAN, $actor);
+        $address = trim((string) ($data['customer_address'] ?? '')) ?: null;
+        // Only a new address is looked up; a short link needs a request to Google, so it happens outside the transaction.
+        $addressChanged = $address !== $ticket->customer_address;
+        $coordinates = $addressChanged ? GeoLocation::fromText($address) : null;
+
+        [$ticket, $changes] = DB::transaction(function () use ($ticket, $data, $actor, $address, $addressChanged, $coordinates) {
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            if ($ticket->status === TicketStatus::TUTUP) {
+                throw ValidationException::withMessages(['customer' => 'Data pelanggan pada tiket yang sudah ditutup tidak dapat diubah']);
+            }
+
+            $before = $ticket->only(['customer_name', 'customer_phone', 'customer_id', 'customer_address']);
+            $hadLocation = $ticket->hasLocation();
+            $ticket->fill([
+                'customer_name' => trim($data['customer_name']),
+                'customer_phone' => PhoneNumber::normalize($data['customer_phone']),
+                // A blank ID keeps the one the ticket already has.
+                'customer_id' => trim((string) ($data['customer_id'] ?? '')) ?: $ticket->customer_id,
+                'customer_address' => $address,
+            ]);
+            if ($addressChanged) {
+                $ticket->latitude = $coordinates[0] ?? null;
+                $ticket->longitude = $coordinates[1] ?? null;
+            }
+
+            $labels = ['customer_name' => 'Nama', 'customer_phone' => 'WhatsApp', 'customer_id' => 'ID Pelanggan', 'customer_address' => 'Alamat'];
+            $changes = collect($labels)
+                ->filter(fn ($label, $field) => $before[$field] !== $ticket->{$field})
+                ->map(fn ($label, $field) => "{$label}: \"".($before[$field] ?? '-').'" → "'.($ticket->{$field} ?? '-').'"')
+                ->values();
+            if ($ticket->hasLocation() && (! $hadLocation || $ticket->isDirty(['latitude', 'longitude']))) {
+                $changes->push('Titik lokasi: '.GeoLocation::format($ticket->latitude).', '.GeoLocation::format($ticket->longitude));
+            } elseif ($hadLocation && ! $ticket->hasLocation()) {
+                $changes->push('Titik lokasi dihapus');
+            }
+            if ($changes->isEmpty()) {
+                throw ValidationException::withMessages(['customer' => 'Tidak ada data pelanggan yang berubah']);
+            }
+
+            $ticket->save();
+            $ticket->histories()->create([
+                'user_id' => $actor->id,
+                'actor_name' => $actor->name,
+                'action' => TicketAction::UBAH_DATA_PELANGGAN,
+                'from_status' => $ticket->status,
+                'to_status' => $ticket->status,
+                'notes' => "Data pelanggan diubah oleh {$actor->name}:\n".$changes->implode("\n"),
+            ]);
+
+            return [$ticket, $changes];
+        });
+
+        if (Setting::read('notify_on_status_change') === '1') {
+            SendTelegramMessage::dispatchAfterResponse(
+                $this->telegram->customerUpdatedMessage($ticket, $changes->all(), $actor->name),
+                ['ticket' => $ticket->ticket_number, 'action' => TicketAction::UBAH_DATA_PELANGGAN->value],
+            );
+        }
+
+        return $ticket;
+    }
+
+    /**
      * Close every ticket that has waited for customer confirmation longer than the timeout.
      *
      * @return Collection<int, Ticket>
