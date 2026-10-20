@@ -21,8 +21,8 @@ class TelegramService
     private const LIST_LIMIT = 25;
 
     /**
-     * Send a message to the configured group. Without a bot token/chat ID the
-     * message is only logged (simulator mode). Every message lands in telegram_logs.
+     * Send a message to the configured group, inside the log topic when one is set. Without a bot
+     * token/chat ID the message is only logged (simulator mode). Every message lands in telegram_logs.
      *
      * @return array{success: bool, error: ?string}
      */
@@ -30,17 +30,19 @@ class TelegramService
     {
         $botToken = (string) Setting::read('bot_token');
         $chatId = (string) Setting::read('chat_id');
+        $topicId = (string) Setting::read('log_topic_id');
         $configured = $botToken !== '' && $chatId !== '';
         $success = ! $configured;
         $error = null;
 
         if ($configured) {
             try {
-                $response = Http::timeout(10)->asJson()->post("https://api.telegram.org/bot{$botToken}/sendMessage", [
+                $response = Http::timeout(10)->asJson()->post("https://api.telegram.org/bot{$botToken}/sendMessage", array_filter([
                     'chat_id' => $chatId,
+                    'message_thread_id' => $topicId !== '' ? (int) $topicId : null,
                     'text' => $text,
                     'parse_mode' => 'HTML',
-                ]);
+                ]));
                 $success = (bool) $response->json('ok');
                 if (! $success) {
                     $error = $response->json('description') ?? 'Gagal mengirim ke Telegram API';

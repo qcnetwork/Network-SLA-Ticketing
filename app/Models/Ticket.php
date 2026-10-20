@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Concerns\HasTechnicians;
+use App\Services\TelegramTicketList;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -52,6 +53,19 @@ class Ticket extends Model
     public const CLOSED_VISIBLE_DAYS = 4;
 
     protected $guarded = ['id'];
+
+    /**
+     * Every change that moves a ticket between nodes, from any workflow, refreshes the Telegram master list.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (Ticket $ticket) {
+            if ($ticket->wasRecentlyCreated || $ticket->wasChanged(['status', 'customer_name'])) {
+                TelegramTicketList::queueRefresh();
+            }
+        });
+        static::deleted(fn () => TelegramTicketList::queueRefresh());
+    }
 
     protected function casts(): array
     {

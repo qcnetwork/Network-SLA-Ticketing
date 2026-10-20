@@ -21,6 +21,23 @@
                 <input id="chat_id" name="chat_id" value="{{ old('chat_id', $settings['chat_id']) }}" class="input font-mono" placeholder="-1001234567890">
                 <x-field-error name="chat_id" />
             </div>
+            <div class="rounded-lg bg-slate-50 p-4">
+                <p class="mb-3 text-sm text-slate-600">Untuk grup dengan topic: isi ID topic, yaitu angka terakhir di link topic (klik kanan topic, pilih Copy Link: <span class="font-mono text-xs">t.me/c/123456/<b>7</b></span>).</p>
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="label" for="log_topic_id">Topic Progress / Log</label>
+                        <input id="log_topic_id" name="log_topic_id" value="{{ old('log_topic_id', $settings['log_topic_id']) }}" class="input font-mono" inputmode="numeric" placeholder="Kosong = chat umum">
+                        <p class="mt-1 text-xs text-slate-500">Notifikasi tiket baru, perpindahan node, dan update lain.</p>
+                        <x-field-error name="log_topic_id" />
+                    </div>
+                    <div>
+                        <label class="label" for="list_topic_id">Topic ListTicket</label>
+                        <input id="list_topic_id" name="list_topic_id" value="{{ old('list_topic_id', $settings['list_topic_id']) }}" class="input font-mono" inputmode="numeric" placeholder="Kosong = list nonaktif">
+                        <p class="mt-1 text-xs text-slate-500">Satu master list per hari yang otomatis diperbarui.</p>
+                        <x-field-error name="list_topic_id" />
+                    </div>
+                </div>
+            </div>
             <div class="space-y-2">
                 <label class="flex items-center gap-2 text-sm text-slate-700">
                     <input type="checkbox" name="notify_on_new_ticket" value="1" @checked($settings['notify_on_new_ticket'] === '1') class="rounded border-slate-300 text-indigo-600">

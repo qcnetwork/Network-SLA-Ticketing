@@ -10,3 +10,5 @@ Artisan::command('inspire', function () {
 
 Schedule::command('tickets:auto-close')->hourly()->withoutOverlapping();
 Schedule::command('tickets:remind-confirmations')->twiceDaily(9, 21);
+// Start each day's master list message even before the first ticket changes.
+Schedule::command('tickets:telegram-list')->dailyAt('00:01');
