@@ -30,7 +30,7 @@
     @endif
 
     {{-- Status summary --}}
-    <div @class(['mb-6 grid grid-cols-2 gap-3', 'sm:grid-cols-4 lg:grid-cols-8' => ! $isTechnician])>
+    <div @class(['mb-6 grid grid-cols-2 gap-3', 'sm:grid-cols-5 lg:grid-cols-9' => ! $isTechnician])>
         <a href="{{ $query(['status' => null]) }}" class="card border-t-4 border-t-slate-700 p-4 transition hover:shadow-md">
             <div class="text-xs font-medium text-slate-500">Total</div>
             <div class="mt-1 text-2xl font-bold">{{ $total }}</div>

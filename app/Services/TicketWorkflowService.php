@@ -36,8 +36,9 @@ class TicketWorkflowService
     ) {}
 
     /**
-     * CS registers a customer complaint. The ticket starts idle in the helpdesk queue,
-     * or goes straight into an open gamas when the customer is in the affected area.
+     * CS registers a customer complaint as soon as the chat comes in, so the daily chat count is complete.
+     * The ticket stays with CS while they coordinate with the customer and is forwarded to the helpdesk
+     * queue afterwards, or goes straight into an open gamas when the customer is in the affected area.
      */
     public function create(array $data, User $actor, ?Incident $incident = null): Ticket
     {
@@ -50,7 +51,7 @@ class TicketWorkflowService
                     throw ValidationException::withMessages(['incident_id' => "Gamas {$incident->incident_number} sudah selesai"]);
                 }
             }
-            $status = $incident ? TicketStatus::GAMAS : TicketStatus::ANTRIAN_HELPDESK;
+            $status = $incident ? TicketStatus::GAMAS : TicketStatus::PROSES_CS;
 
             $ticket = Ticket::create([
                 'ticket_number' => $this->numbers->next(),
@@ -86,14 +87,7 @@ class TicketWorkflowService
             return $ticket;
         });
 
-        // Gamas tickets are covered by the gamas notifications; one message per customer would flood the group.
-        if (! $incident && Setting::read('notify_on_new_ticket') === '1') {
-            SendTelegramMessage::dispatchAfterResponse(
-                $this->telegram->newTicketMessage($ticket),
-                ['ticket' => $ticket->ticket_number, 'action' => 'NEW_TICKET'],
-            );
-        }
-
+        // The helpdesk group hears about the ticket once CS forwards it; gamas tickets are covered by the gamas notifications.
         return $ticket;
     }
 
@@ -121,7 +115,7 @@ class TicketWorkflowService
 
             switch ($action) {
                 case TicketAction::SELESAI_EDUKASI_CS:
-                    $this->requireStatus($ticket, [TicketStatus::ANTRIAN_HELPDESK],
+                    $this->requireStatus($ticket, [TicketStatus::PROSES_CS, TicketStatus::ANTRIAN_HELPDESK],
                         'CS hanya bisa menutup tiket yang belum diambil Helpdesk');
                     if (! $notes) {
                         throw ValidationException::withMessages(['notes' => 'Tuliskan edukasi yang diberikan ke pelanggan']);
@@ -131,6 +125,12 @@ class TicketWorkflowService
                     $ticket->resolved_at = $now;
                     $ticket->closed_at = $now;
                     $description = "CS ({$actor->name}) menyelesaikan kendala lewat edukasi pelanggan. Tiket ditutup.";
+                    break;
+
+                case TicketAction::TERUSKAN_HELPDESK:
+                    $this->requireStatus($ticket, [TicketStatus::PROSES_CS], 'Hanya tiket yang masih diproses CS yang bisa diteruskan ke Helpdesk');
+                    $ticket->status = TicketStatus::ANTRIAN_HELPDESK;
+                    $description = "CS ({$actor->name}) meneruskan tiket ke Antrian Helpdesk.";
                     break;
 
                 case TicketAction::KLAIM_HELPDESK:
@@ -212,6 +212,10 @@ class TicketWorkflowService
                 case TicketAction::CATATAN_URGENSI_CS:
                     if ($ticket->status === TicketStatus::TUTUP) {
                         throw ValidationException::withMessages(['action' => 'Tidak dapat menambahkan catatan urgensi pada tiket yang sudah ditutup']);
+                    }
+                    // The note pings the helpdesk group, which has not seen the ticket yet.
+                    if ($ticket->status === TicketStatus::PROSES_CS) {
+                        throw ValidationException::withMessages(['action' => 'Teruskan tiket ke Helpdesk terlebih dahulu sebelum mengirim catatan urgensi']);
                     }
                     if (! $notes) {
                         throw ValidationException::withMessages(['notes' => 'Catatan urgensi wajib diisi']);
@@ -317,7 +321,20 @@ class TicketWorkflowService
 
     private function notify(Ticket $ticket, TicketAction $action, TicketStatus $previous, string $notes, User $actor, array $data): void
     {
-        if (Setting::read('notify_on_status_change') !== '1') {
+        // A forwarded ticket is new to the helpdesk group, so it is announced like a new ticket.
+        if ($action === TicketAction::TERUSKAN_HELPDESK) {
+            if (Setting::read('notify_on_new_ticket') === '1') {
+                SendTelegramMessage::dispatchAfterResponse(
+                    $this->telegram->newTicketMessage($ticket, trim((string) ($data['notes'] ?? '')) ?: null),
+                    ['ticket' => $ticket->ticket_number, 'action' => 'NEW_TICKET'],
+                );
+            }
+
+            return;
+        }
+
+        // The helpdesk group never saw a ticket that CS handled on their own.
+        if ($previous === TicketStatus::PROSES_CS || Setting::read('notify_on_status_change') !== '1') {
             return;
         }
 

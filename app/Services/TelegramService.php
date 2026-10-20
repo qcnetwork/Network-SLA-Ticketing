@@ -73,7 +73,7 @@ class TelegramService
         return htmlspecialchars((string) $value, ENT_NOQUOTES, 'UTF-8');
     }
 
-    public function newTicketMessage(Ticket $ticket): string
+    public function newTicketMessage(Ticket $ticket, ?string $csNotes = null): string
     {
         $e = self::escape(...);
 
@@ -86,6 +86,7 @@ class TelegramService
             ."⚠️ <b>Kategori:</b> {$e($ticket->category)}\n"
             ."⚡ <b>Prioritas:</b> {$ticket->priority->telegramLabel()}\n"
             ."📝 <b>Kendala:</b> {$e($ticket->complaint)}\n"
+            .($csNotes ? "💬 <b>Catatan CS:</b> {$e($csNotes)}\n" : '')
             ."━━━━━━━━━━━━━━━━━━━━\n"
             ."🟡 <b>Status:</b> ANTRIAN HELPDESK\n"
             ."⏰ <i>Waktu: {$ticket->created_at->format('d/m/Y H:i')}</i>\n"

@@ -29,6 +29,7 @@ class IncidentWorkflowService
      * Ticket statuses that can still be pulled into a gamas. Resolved or closed tickets are left alone.
      */
     public const LINKABLE_STATUSES = [
+        TicketStatus::PROSES_CS,
         TicketStatus::ANTRIAN_HELPDESK,
         TicketStatus::HELPDESK_CEK,
         TicketStatus::PERBAIKAN,

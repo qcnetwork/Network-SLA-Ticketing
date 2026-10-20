@@ -10,9 +10,10 @@
         $canRepair = $can(A::MULAI_PERBAIKAN) && $status === S::PERBAIKAN;
         $canReassign = $can(A::UBAH_TEKNISI) && $status === S::PERBAIKAN;
         $canConfirm = $can(A::KONFIRMASI_NORMAL) && $status === S::MENUNGGU_KONFIRMASI;
-        $canUrgency = $can(A::CATATAN_URGENSI_CS) && $status !== S::TUTUP;
+        $canUrgency = $can(A::CATATAN_URGENSI_CS) && ! in_array($status, [S::PROSES_CS, S::TUTUP], true);
         $canDocument = $can(A::CATATAN_DOKUMENTASI) && $status !== S::TUTUP;
-        $canCsClose = $can(A::SELESAI_EDUKASI_CS) && $status === S::ANTRIAN_HELPDESK;
+        $canForward = $can(A::TERUSKAN_HELPDESK) && $status === S::PROSES_CS;
+        $canCsClose = $can(A::SELESAI_EDUKASI_CS) && in_array($status, [S::PROSES_CS, S::ANTRIAN_HELPDESK], true);
         $actionUrl = fn (A $action) => route('tickets.perform', [$ticket, $action->value]);
     @endphp
 
@@ -66,6 +67,9 @@
         </ol>
         @if ($status === S::GAMAS)
             <p class="mt-3 flex items-center gap-1 text-xs font-medium text-red-700"><i data-lucide="radio-tower" class="h-3.5 w-3.5"></i>Tiket ini menunggu perbaikan gangguan massal. Tiket otomatis lanjut ke konfirmasi saat gamas selesai.</p>
+        @endif
+        @if ($status === S::PROSES_CS)
+            <p class="mt-3 flex items-center gap-1 text-xs font-medium text-cyan-700"><i data-lucide="headset" class="h-3.5 w-3.5"></i>Tiket masih ditangani CS. Helpdesk baru bisa mengambil tiket setelah CS meneruskannya ke Antrian Helpdesk.</p>
         @endif
         @if ($status === S::CEK_ULANG)
             <p class="mt-3 flex items-center gap-1 text-xs font-medium text-rose-600"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>Pelanggan melaporkan masih terkendala. Tiket kembali ke Helpdesk untuk cek ulang.</p>
@@ -180,6 +184,16 @@
                     @endif
                 </div>
             @endif
+            @if ($canForward)
+                <form method="POST" action="{{ $actionUrl(A::TERUSKAN_HELPDESK) }}" class="card space-y-3 border-l-4 border-l-cyan-500 p-5">
+                    @csrf
+                    <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="send" class="h-4 w-4 text-cyan-600"></i>Teruskan ke Helpdesk</h3>
+                    <p class="text-sm text-slate-500">Koordinasi dengan pelanggan sudah selesai dan kendala perlu dicek tim teknis? Teruskan tiket ke Antrian Helpdesk.</p>
+                    <textarea name="notes" rows="3" class="input" placeholder="Hasil koordinasi untuk Helpdesk (opsional). Contoh: Lampu LOS merah, pelanggan sudah restart modem"></textarea>
+                    <button class="btn-primary w-full"><i data-lucide="send" class="h-4 w-4"></i>Teruskan ke Antrian Helpdesk</button>
+                </form>
+            @endif
+
             @if ($canCsClose)
                 <form method="POST" action="{{ $actionUrl(A::SELESAI_EDUKASI_CS) }}" class="card space-y-3 p-5"
                     onsubmit="return confirm('Tutup tiket ini? Pastikan pelanggan sudah konfirmasi koneksi normal.')">
@@ -392,7 +406,7 @@
                 </form>
             @endif
 
-            @if (! ($canCsClose || $canClaim || $canResolve || $canReassign || $canRepair || $canConfirm || $canUrgency || $canDocument))
+            @if (! ($canForward || $canCsClose || $canClaim || $canResolve || $canReassign || $canRepair || $canConfirm || $canUrgency || $canDocument))
                 <div class="card p-5 text-sm text-slate-500">
                     @if ($status === S::TUTUP)
                         <p class="flex items-center gap-2 font-medium text-emerald-700"><i data-lucide="check-circle-2" class="h-4 w-4"></i>Tiket sudah selesai dan ditutup.</p>

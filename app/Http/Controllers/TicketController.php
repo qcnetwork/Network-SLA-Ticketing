@@ -64,7 +64,7 @@ class TicketController extends Controller
 
         return redirect()->route('tickets.show', $ticket)->with('success', $incident
             ? "Tiket {$ticket->ticket_number} berhasil dibuat dan ditautkan ke gamas {$incident->incident_number}"
-            : "Tiket {$ticket->ticket_number} berhasil dibuat dan masuk Antrian Helpdesk");
+            : "Tiket {$ticket->ticket_number} berhasil dibuat. Teruskan ke Helpdesk setelah koordinasi dengan pelanggan selesai");
     }
 
     public function show(Ticket $ticket): View
@@ -77,6 +77,7 @@ class TicketController extends Controller
             'ticket' => $ticket,
             'technicians' => User::technicians()->get(),
             'flow' => [
+                TicketStatus::PROSES_CS,
                 TicketStatus::ANTRIAN_HELPDESK,
                 TicketStatus::HELPDESK_CEK,
                 TicketStatus::PERBAIKAN,

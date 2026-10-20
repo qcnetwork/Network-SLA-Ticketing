@@ -8,14 +8,14 @@
             @csrf
             <div class="mb-6">
                 <h1 class="text-xl font-bold text-slate-900">Buat Tiket Baru</h1>
-                <p class="text-sm text-slate-500">Catat komplain pelanggan dari WhatsApp. Tiket akan masuk ke <b>Antrian Helpdesk</b> dan menunggu diambil tim HD.</p>
+                <p class="text-sm text-slate-500">Catat komplain pelanggan dari WhatsApp. Tiket tetap di tahap <b>Proses CS</b> selama koordinasi dengan pelanggan, lalu diteruskan ke <b>Antrian Helpdesk</b> untuk diambil tim HD.</p>
             </div>
 
             @if ($openIncidents->isNotEmpty())
                 <div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
                     <label class="label flex items-center gap-2 text-red-800" for="incident_id"><i data-lucide="radio-tower" class="h-4 w-4"></i>Pelanggan terdampak gangguan massal?</label>
                     <select id="incident_id" name="incident_id" class="input">
-                        <option value="">Tidak, tiket biasa (masuk Antrian Helpdesk)</option>
+                        <option value="">Tidak, tiket biasa (diproses CS dulu)</option>
                         @foreach ($openIncidents as $incident)
                             <option value="{{ $incident->id }}" @selected((string) old('incident_id', request('incident')) === (string) $incident->id)>
                                 {{ $incident->incident_number }} · {{ $incident->title }} ({{ $incident->area }})

@@ -34,7 +34,10 @@ class TicketWorkflowTest extends TestCase
         $this->technician = $this->userWithRole(Role::TEKNISI);
     }
 
-    private function createTicket(array $overrides = []): Ticket
+    /**
+     * Creates a ticket as CS and, unless told otherwise, forwards it to the helpdesk queue.
+     */
+    private function createTicket(array $overrides = [], bool $forward = true): Ticket
     {
         $this->actingAs($this->cs)->post('/tickets', $overrides + [
             'customer_name' => 'Smoke Customer',
@@ -44,7 +47,12 @@ class TicketWorkflowTest extends TestCase
             'complaint' => 'Internet mati sejak pagi',
         ])->assertSessionHasNoErrors();
 
-        return Ticket::query()->latest('id')->firstOrFail();
+        $ticket = Ticket::query()->latest('id')->firstOrFail();
+        if ($forward) {
+            $this->act($this->cs, $ticket, 'TERUSKAN_HELPDESK')->assertSessionHasNoErrors();
+        }
+
+        return $ticket->fresh();
     }
 
     private function act(User $user, Ticket $ticket, string $action, array $data = [])
@@ -52,18 +60,49 @@ class TicketWorkflowTest extends TestCase
         return $this->actingAs($user)->post("/tickets/{$ticket->ticket_number}/actions/{$action}", $data);
     }
 
-    public function test_cs_creates_ticket_that_waits_in_helpdesk_queue(): void
+    public function test_cs_creates_ticket_that_stays_with_cs_until_forwarded(): void
     {
-        $ticket = $this->createTicket();
+        $ticket = $this->createTicket(forward: false);
 
         $this->assertMatchesRegularExpression('/^TCK-\d{8}-0001$/', $ticket->ticket_number);
-        $this->assertSame(TicketStatus::ANTRIAN_HELPDESK, $ticket->status);
+        $this->assertSame(TicketStatus::PROSES_CS, $ticket->status);
         $this->assertSame('6281234567890', $ticket->customer_phone);
         $this->assertSame($this->cs->id, $ticket->created_by_id);
         $this->assertCount(1, $ticket->histories);
-        $this->assertSame(1, TelegramLog::query()->where('simulated', true)->count());
+        // The helpdesk group is not pinged while CS is still coordinating with the customer.
+        $this->assertSame(0, TelegramLog::query()->count());
+
+        // Helpdesk cannot pick up the ticket and CS cannot ping the group before it is forwarded.
+        $this->act($this->helpdesk, $ticket, 'KLAIM_HELPDESK')->assertSessionHasErrors('action');
+        $this->act($this->helpdesk, $ticket, 'TERUSKAN_HELPDESK')->assertForbidden();
+        $this->act($this->cs, $ticket, 'CATATAN_URGENSI_CS', ['notes' => 'Follow up'])->assertSessionHasErrors('action');
+        $this->actingAs($this->cs)->get("/tickets/{$ticket->ticket_number}")->assertOk()
+            ->assertSee('Teruskan ke Antrian Helpdesk')->assertDontSee('Catatan Urgensi');
+        $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertOk()->assertDontSee('Klaim & Mulai Cek', false);
+
+        $this->act($this->cs, $ticket, 'TERUSKAN_HELPDESK', ['notes' => 'Lampu LOS merah'])->assertSessionHasNoErrors();
+        $ticket->refresh();
+        $this->assertSame(TicketStatus::ANTRIAN_HELPDESK, $ticket->status);
+        $this->assertSame('TERUSKAN_HELPDESK', $ticket->histories->last()->action->value);
+        $message = TelegramLog::query()->sole()->message;
+        $this->assertStringContainsString('TIKET BARU MASUK', $message);
+        $this->assertStringContainsString('Lampu LOS merah', $message);
+
+        $this->act($this->cs, $ticket, 'TERUSKAN_HELPDESK')->assertSessionHasErrors('action');
+        $this->act($this->helpdesk, $ticket, 'KLAIM_HELPDESK')->assertSessionHasNoErrors();
 
         $this->assertSame('TCK-'.now()->format('Ymd').'-0002', $this->createTicket()->ticket_number);
+    }
+
+    public function test_cs_can_close_ticket_by_education_before_forwarding(): void
+    {
+        $ticket = $this->createTicket(forward: false);
+
+        $this->act($this->cs, $ticket, 'SELESAI_EDUKASI_CS', ['notes' => 'Restart modem, normal'])->assertSessionHasNoErrors();
+
+        $ticket->refresh();
+        $this->assertSame(TicketStatus::TUTUP, $ticket->status);
+        $this->assertSame(0, TelegramLog::query()->count());
     }
 
     public function test_ticket_creation_is_validated_and_role_limited(): void
@@ -94,7 +133,7 @@ class TicketWorkflowTest extends TestCase
         $this->assertSame('Reboot ONT', $ticket->remote_resolution_notes);
         $this->assertNotNull($ticket->closed_at);
         $this->assertSame(
-            ['TIKET_DIBUAT', 'KLAIM_HELPDESK', 'SELESAI_REMOTE', 'KONFIRMASI_NORMAL'],
+            ['TIKET_DIBUAT', 'TERUSKAN_HELPDESK', 'KLAIM_HELPDESK', 'SELESAI_REMOTE', 'KONFIRMASI_NORMAL'],
             $ticket->histories->pluck('action')->map->value->all(),
         );
 
