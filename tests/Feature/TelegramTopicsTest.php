@@ -122,7 +122,7 @@ class TelegramTopicsTest extends TestCase
         $posts = $this->listPosts();
         $this->assertCount(1, $posts);
         $this->assertStringContainsString('MASTER LIST TIKET', $posts[0]['text']);
-        $this->assertStringContainsString("{$ticket->ticket_number}</code> · Budi Santoso · 🎧 Proses CS", $posts[0]['text']);
+        $this->assertStringContainsString("🎧 <b>PROSES CS (1)</b>\n1. <code>{$ticket->ticket_number}</code> · Budi Santoso", $posts[0]['text']);
         $listMessageId = $this->lastListMessageId();
         $this->assertSame($listMessageId, Setting::read('ticket_list_message_id'));
 
@@ -131,7 +131,8 @@ class TelegramTopicsTest extends TestCase
         $this->assertCount(1, $this->listPosts());
         $edit = collect($this->listEdits())->last();
         $this->assertSame((int) $listMessageId, $edit['message_id']);
-        $this->assertStringContainsString('🟡 Antrian Helpdesk', $edit['text']);
+        $this->assertStringContainsString('🟡 <b>ANTRIAN HELPDESK (1)</b>', $edit['text']);
+        $this->assertStringNotContainsString('PROSES CS', $edit['text']);
     }
 
     public function test_a_new_day_starts_a_new_list_message_and_keeps_yesterdays(): void
@@ -158,12 +159,28 @@ class TelegramTopicsTest extends TestCase
         $list = app(TelegramTicketList::class);
         $text = $list->message($list->tickets(), now());
 
-        $this->assertStringContainsString('Masih Proses · 🔧 Perbaikan (Teknisi)', $text);
-        $this->assertStringContainsString('Tutup Hari Ini · ✅ Tutup / Selesai', $text);
+        $this->assertStringContainsString("🔧 <b>PERBAIKAN (TEKNISI) (1)</b>\n1. <code>{$open->ticket_number}</code> · Masih Proses", $text);
+        $this->assertStringContainsString("✅ <b>TUTUP / SELESAI (1)</b>\n1. <code>{$closedToday->ticket_number}</code> · Tutup Hari Ini", $text);
         $this->assertStringNotContainsString('Tutup Kemarin', $text);
         $this->assertStringContainsString('Aktif: <b>1</b> · Tutup hari ini: <b>1</b>', $text);
         // Open tickets come before the closed ones.
         $this->assertLessThan(strpos($text, $closedToday->ticket_number), strpos($text, $open->ticket_number));
+    }
+
+    public function test_each_node_is_numbered_from_its_oldest_ticket(): void
+    {
+        $newer = Ticket::factory()->create(['customer_name' => 'Baru Masuk', 'created_at' => now()->subHour()]);
+        $older = Ticket::factory()->create(['customer_name' => 'Lama Masuk', 'created_at' => now()->subHours(5)]);
+        Ticket::factory()->status(TicketStatus::PROSES_CS)->create(['customer_name' => 'Di CS']);
+
+        $list = app(TelegramTicketList::class);
+        $text = $list->message($list->tickets(), now());
+
+        $this->assertStringContainsString("🟡 <b>ANTRIAN HELPDESK (2)</b>\n"
+            ."1. <code>{$older->ticket_number}</code> · Lama Masuk\n"
+            ."2. <code>{$newer->ticket_number}</code> · Baru Masuk\n", $text);
+        // Nodes follow the workflow: Proses CS comes before the helpdesk queue.
+        $this->assertLessThan(strpos($text, 'ANTRIAN HELPDESK'), strpos($text, 'PROSES CS'));
     }
 
     public function test_a_long_list_is_cut_to_fit_one_telegram_message(): void

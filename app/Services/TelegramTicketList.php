@@ -90,20 +90,29 @@ class TelegramTicketList
             ."━━━━━━━━━━━━━━━━━━━━\n";
         $footer = "━━━━━━━━━━━━━━━━━━━━\n".'🔄 <i>Diperbarui '.$now->format('H:i').'</i>';
 
-        $lines = [];
+        // One section per node, numbered from its oldest ticket.
+        $body = '';
+        $shown = 0;
         $length = mb_strlen($header.$footer);
-        foreach ($tickets as $ticket) {
-            $line = "• <code>{$e($ticket->ticket_number)}</code> · {$e($ticket->customer_name)} · "
-                .Str::before($ticket->status->telegramLabel(), ' ').' '.$ticket->status->label()."\n";
-            if ($length + mb_strlen($line) > self::MAX_LENGTH) {
-                $lines[] = '… dan '.($tickets->count() - count($lines))." tiket lainnya\n";
-                break;
+        foreach ($tickets->groupBy(fn (Ticket $ticket) => $ticket->status->value) as $group) {
+            $status = $group->first()->status;
+            $section = [($body === '' ? '' : "\n").Str::before($status->telegramLabel(), ' ')
+                .' <b>'.mb_strtoupper($status->label())." ({$group->count()})</b>\n"];
+            foreach ($group->values() as $i => $ticket) {
+                $section[] = ($i + 1).". <code>{$e($ticket->ticket_number)}</code> · {$e($ticket->customer_name)}\n";
             }
-            $lines[] = $line;
-            $length += mb_strlen($line);
+
+            foreach ($section as $index => $line) {
+                if ($length + mb_strlen($line) > self::MAX_LENGTH) {
+                    return $header.$body.'… dan '.($tickets->count() - $shown)." tiket lainnya\n".$footer;
+                }
+                $body .= $line;
+                $length += mb_strlen($line);
+                $shown += $index > 0 ? 1 : 0;
+            }
         }
 
-        return $header.($lines ? implode('', $lines) : "<i>Belum ada tiket.</i>\n").$footer;
+        return $header.($body !== '' ? $body : "<i>Belum ada tiket.</i>\n").$footer;
     }
 
     /**
