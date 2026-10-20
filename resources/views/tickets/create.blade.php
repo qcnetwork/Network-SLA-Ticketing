@@ -53,8 +53,9 @@
                     <x-field-error name="priority" />
                 </div>
                 <div class="sm:col-span-2">
-                    <label class="label" for="customer_address">Alamat</label>
-                    <input id="customer_address" name="customer_address" value="{{ old('customer_address') }}" class="input" maxlength="255">
+                    <label class="label" for="customer_address">Alamat / Shareloc</label>
+                    <input id="customer_address" name="customer_address" value="{{ old('customer_address') }}" class="input" maxlength="255" placeholder="Alamat, link shareloc Google Maps/WhatsApp, atau koordinat (-6.2088, 106.8456)">
+                    <p class="mt-1 text-xs text-slate-500">Kalau diisi link shareloc atau koordinat, titik lokasinya otomatis tampil di detail tiket.</p>
                     <x-field-error name="customer_address" />
                 </div>
                 <div class="sm:col-span-2">
@@ -75,7 +76,7 @@
 
             <div class="mt-6 flex justify-end gap-2">
                 <a href="{{ route('dashboard') }}" class="btn-secondary">Batal</a>
-                <button class="btn-primary"><i data-lucide="send" class="h-4 w-4"></i>Simpan & Kirim ke Helpdesk</button>
+                <button class="btn-primary"><i data-lucide="save" class="h-4 w-4"></i>Simpan Tiket</button>
             </div>
         </form>
     </div>

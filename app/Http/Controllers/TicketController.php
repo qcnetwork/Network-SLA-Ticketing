@@ -10,6 +10,7 @@ use App\Enums\TicketStatus;
 use App\Models\Incident;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
+use App\Models\TicketCategory;
 use App\Models\User;
 use App\Services\DocumentationPhotoStore;
 use App\Services\IncidentWorkflowService;
@@ -31,7 +32,7 @@ class TicketController extends Controller
         $this->authorize('create', Ticket::class);
 
         return view('tickets.create', [
-            'categories' => Ticket::CATEGORIES,
+            'categories' => TicketCategory::activeNames(),
             'priorities' => TicketPriority::cases(),
             'openIncidents' => Incident::query()->open()->latest()->get(),
         ]);
@@ -46,7 +47,7 @@ class TicketController extends Controller
             'customer_phone' => ['required', 'string', 'max:30', 'regex:/^[0-9+\-\s()]{8,}$/'],
             'customer_id' => ['nullable', 'string', 'max:50'],
             'customer_address' => ['nullable', 'string', 'max:255'],
-            'category' => ['required', Rule::in(Ticket::CATEGORIES)],
+            'category' => ['required', Rule::in(TicketCategory::activeNames())],
             'priority' => ['required', Rule::enum(TicketPriority::class)],
             'complaint' => ['required', 'string', 'max:2000'],
             'incident_id' => ['nullable', Rule::exists('incidents', 'id')->whereIn('status', array_map(fn (IncidentStatus $status) => $status->value, IncidentStatus::open()))],
@@ -86,6 +87,7 @@ class TicketController extends Controller
             ],
             'urgencyLevels' => TicketWorkflowService::URGENCY_LEVELS,
             'modemSuggestions' => Ticket::MODEM_SUGGESTIONS,
+            'categories' => TicketCategory::activeNames(),
             'waTypes' => WhatsAppTemplateService::TYPES,
             'openIncidents' => Incident::query()->open()->latest()->get(),
             'canJoinIncident' => $ticket->incident_id === null
@@ -107,7 +109,7 @@ class TicketController extends Controller
             'modem' => ['nullable', 'string', 'max:100'],
             'urgency_level' => ['nullable', Rule::in(TicketWorkflowService::URGENCY_LEVELS)],
             'upgrade_priority' => ['nullable', 'boolean'],
-            'category' => ['nullable', Rule::in(Ticket::CATEGORIES)],
+            'category' => ['nullable', Rule::in(TicketCategory::activeNames())],
             ...DocumentationPhotoStore::rules(),
         ], DocumentationPhotoStore::MESSAGES);
 

@@ -88,7 +88,32 @@
                     <div><dt class="text-xs text-slate-500">ID Pelanggan</dt><dd class="font-medium">{{ $ticket->customer_id ?? '-' }}</dd></div>
                     <div><dt class="text-xs text-slate-500">WhatsApp</dt><dd class="font-medium">{{ $ticket->customer_phone }}</dd></div>
                     <div><dt class="text-xs text-slate-500">Kategori</dt><dd class="font-medium">{{ $ticket->category }}</dd></div>
-                    <div class="sm:col-span-2"><dt class="text-xs text-slate-500">Alamat</dt><dd class="font-medium">{{ $ticket->customer_address ?: '-' }}</dd></div>
+                    <div class="sm:col-span-2">
+                        <dt class="text-xs text-slate-500">Alamat</dt>
+                        <dd class="font-medium break-all">
+                            @if (Str::startsWith($ticket->customer_address, ['http://', 'https://']))
+                                <a href="{{ $ticket->customer_address }}" target="_blank" rel="noopener noreferrer" class="text-indigo-700 hover:underline">{{ $ticket->customer_address }}</a>
+                            @else
+                                {{ $ticket->customer_address ?: '-' }}
+                            @endif
+                        </dd>
+                    </div>
+                    @if ($ticket->hasLocation())
+                        @php($coordinates = App\Support\GeoLocation::format($ticket->latitude).', '.App\Support\GeoLocation::format($ticket->longitude))
+                        <div class="sm:col-span-2">
+                            <dt class="text-xs text-slate-500">Titik Lokasi</dt>
+                            <dd class="mt-1 space-y-2">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="font-mono font-medium">{{ $coordinates }}</span>
+                                    <a href="{{ $ticket->mapsUrl() }}" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-1.5 text-xs">
+                                        <i data-lucide="map-pin" class="h-3.5 w-3.5 text-rose-600"></i>Buka di Google Maps
+                                    </a>
+                                </div>
+                                <iframe src="{{ 'https://maps.google.com/maps?q='.str_replace(' ', '', $coordinates).'&z=16&output=embed' }}" title="Peta lokasi pelanggan"
+                                    class="aspect-video w-full rounded-lg border border-slate-200" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                            </dd>
+                        </div>
+                    @endif
                     <div class="sm:col-span-2">
                         <dt class="text-xs text-slate-500">Kendala</dt>
                         <dd class="mt-1 rounded-lg bg-slate-50 p-3 whitespace-pre-line wrap-break-word">{{ $ticket->complaint }}</dd>
@@ -404,7 +429,7 @@
                     <div>
                         <label class="label" for="recategorize_category">Kategori sebenarnya</label>
                         <select id="recategorize_category" name="category" class="input" required>
-                            @foreach (App\Models\Ticket::CATEGORIES as $category)
+                            @foreach ($categories as $category)
                                 <option value="{{ $category }}" @selected($category === $ticket->category)>{{ $category }}</option>
                             @endforeach
                         </select>

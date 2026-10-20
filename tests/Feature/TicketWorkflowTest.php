@@ -42,7 +42,7 @@ class TicketWorkflowTest extends TestCase
         $this->actingAs($this->cs)->post('/tickets', $overrides + [
             'customer_name' => 'Smoke Customer',
             'customer_phone' => '0812-3456-7890',
-            'category' => Ticket::CATEGORIES[0],
+            'category' => 'LOS Merah / Kabel Putus',
             'priority' => 'SEDANG',
             'complaint' => 'Internet mati sejak pagi',
         ])->assertSessionHasNoErrors();
@@ -113,7 +113,7 @@ class TicketWorkflowTest extends TestCase
             ->assertSessionHasErrors(['customer_name', 'customer_phone', 'complaint', 'category', 'priority']);
 
         $this->actingAs($this->technician)->post('/tickets', [
-            'customer_name' => 'No', 'customer_phone' => '08123456789', 'category' => Ticket::CATEGORIES[0],
+            'customer_name' => 'No', 'customer_phone' => '08123456789', 'category' => 'LOS Merah / Kabel Putus',
             'priority' => 'SEDANG', 'complaint' => 'Not allowed',
         ])->assertForbidden();
     }
@@ -466,7 +466,7 @@ class TicketWorkflowTest extends TestCase
         $this->act($this->cs, $ticket, 'SELESAI_EDUKASI_CS', ['notes' => 'Restart modem']);
 
         $this->act($this->helpdesk, $ticket, 'UBAH_KATEGORI', ['category' => 'Lainnya'])->assertSessionHasErrors('category');
-        $this->assertSame(Ticket::CATEGORIES[0], $ticket->refresh()->category);
+        $this->assertSame('LOS Merah / Kabel Putus', $ticket->refresh()->category);
     }
 
     public function test_technician_repair_report_can_include_photos(): void

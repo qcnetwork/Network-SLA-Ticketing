@@ -21,7 +21,7 @@ class TicketFactory extends Factory
             'customer_name' => fake()->name(),
             'customer_phone' => fake()->numerify('62812########'),
             'customer_address' => fake()->address(),
-            'category' => fake()->randomElement(Ticket::CATEGORIES),
+            'category' => fake()->randomElement(['LOS Merah / Kabel Putus', 'Internet Lambat / Ping Tinggi', 'WiFi Sering Putus / Jangkauan Sinyal', 'Lainnya']),
             'priority' => fake()->randomElement(TicketPriority::cases()),
             'complaint' => fake()->sentence(12),
             'status' => TicketStatus::ANTRIAN_HELPDESK,

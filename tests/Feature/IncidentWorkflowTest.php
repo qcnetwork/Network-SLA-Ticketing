@@ -81,7 +81,7 @@ class IncidentWorkflowTest extends TestCase
         $this->actingAs($this->cs)->post('/tickets', [
             'customer_name' => 'Pelanggan B',
             'customer_phone' => '081234567890',
-            'category' => Ticket::CATEGORIES[0],
+            'category' => 'LOS Merah / Kabel Putus',
             'priority' => 'SEDANG',
             'complaint' => 'LOS merah',
             'incident_id' => $incident->id,
@@ -96,7 +96,7 @@ class IncidentWorkflowTest extends TestCase
         $this->post('/tickets', [
             'customer_name' => 'Pelanggan C',
             'customer_phone' => '081234567891',
-            'category' => Ticket::CATEGORIES[0],
+            'category' => 'LOS Merah / Kabel Putus',
             'priority' => 'SEDANG',
             'complaint' => 'LOS merah',
             'incident_id' => $incident->id,

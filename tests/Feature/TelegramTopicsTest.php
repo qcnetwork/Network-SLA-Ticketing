@@ -56,7 +56,7 @@ class TelegramTopicsTest extends TestCase
         $this->actingAs($this->cs)->post('/tickets', [
             'customer_name' => $name,
             'customer_phone' => '081234567890',
-            'category' => Ticket::CATEGORIES[0],
+            'category' => 'LOS Merah / Kabel Putus',
             'priority' => 'SEDANG',
             'complaint' => 'Internet mati',
         ])->assertSessionHasNoErrors();

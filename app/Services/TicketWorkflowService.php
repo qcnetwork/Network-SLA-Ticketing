@@ -12,6 +12,7 @@ use App\Models\Incident;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\GeoLocation;
 use App\Support\PhoneNumber;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\UploadedFile;
@@ -43,8 +44,10 @@ class TicketWorkflowService
     public function create(array $data, User $actor, ?Incident $incident = null): Ticket
     {
         $this->ensureRole(TicketAction::TIKET_DIBUAT, $actor);
+        // Read outside the transaction: a short link needs a request to Google to find the pin.
+        $coordinates = GeoLocation::fromText($data['customer_address'] ?? null);
 
-        $ticket = DB::transaction(function () use ($data, $actor, $incident) {
+        $ticket = DB::transaction(function () use ($data, $actor, $incident, $coordinates) {
             if ($incident) {
                 $incident = Incident::query()->lockForUpdate()->findOrFail($incident->id);
                 if (! $incident->isOpen()) {
@@ -59,6 +62,8 @@ class TicketWorkflowService
                 'customer_name' => $data['customer_name'],
                 'customer_phone' => PhoneNumber::normalize($data['customer_phone']),
                 'customer_address' => $data['customer_address'] ?? null,
+                'latitude' => $coordinates[0] ?? null,
+                'longitude' => $coordinates[1] ?? null,
                 'category' => $data['category'] ?? null ?: 'Internet Mati / LOS',
                 'priority' => $data['priority'] ?? TicketPriority::SEDANG,
                 'complaint' => $data['complaint'],

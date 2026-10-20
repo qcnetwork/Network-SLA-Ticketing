@@ -7,6 +7,7 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Concerns\HasTechnicians;
 use App\Services\TelegramTicketList;
+use App\Support\GeoLocation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -17,15 +18,6 @@ use Illuminate\Support\Carbon;
 class Ticket extends Model
 {
     use HasFactory, HasTechnicians;
-
-    public const CATEGORIES = [
-        'LOS Merah / Kabel Putus',
-        'Internet Mati Total (LOS Hijau tapi RTO)',
-        'Internet Lambat / Ping Tinggi',
-        'WiFi Sering Putus / Jangkauan Sinyal',
-        'Router / Modem Rusak (Mati Total)',
-        'Lainnya',
-    ];
 
     /**
      * Common ONT/modem types, offered as suggestions; Helpdesk can still type any other model.
@@ -75,7 +67,19 @@ class Ticket extends Model
             'repair_started_at' => 'datetime',
             'resolved_at' => 'datetime',
             'closed_at' => 'datetime',
+            'latitude' => 'float',
+            'longitude' => 'float',
         ];
+    }
+
+    public function hasLocation(): bool
+    {
+        return $this->latitude !== null && $this->longitude !== null;
+    }
+
+    public function mapsUrl(): ?string
+    {
+        return $this->hasLocation() ? GeoLocation::mapsUrl($this->latitude, $this->longitude) : null;
     }
 
     public function getRouteKeyName(): string
