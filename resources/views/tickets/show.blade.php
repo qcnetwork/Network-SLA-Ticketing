@@ -186,7 +186,7 @@
                 </div>
             @endif
             @if ($canForward)
-                <form method="POST" action="{{ $actionUrl(A::TERUSKAN_HELPDESK) }}" class="card space-y-3 border-l-4 border-l-cyan-500 p-5">
+                <form method="POST" action="{{ $actionUrl(A::TERUSKAN_HELPDESK) }}" class="card space-y-3 p-5">
                     @csrf
                     <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="send" class="h-4 w-4 text-cyan-600"></i>Teruskan ke Helpdesk</h3>
                     <p class="text-sm text-slate-500">Koordinasi dengan pelanggan sudah selesai dan kendala perlu dicek tim teknis? Teruskan tiket ke Antrian Helpdesk.</p>
