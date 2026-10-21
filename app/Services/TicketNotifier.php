@@ -30,6 +30,7 @@ class TicketNotifier
                 : $this->toRole(Role::CS, $notice("Tiket baru dibuat{$who}, menunggu diproses CS.", 'headset'), $actor),
             TicketStatus::ANTRIAN_HELPDESK => $this->toRole(Role::HELPDESK, $notice("Masuk Antrian Helpdesk{$who}.", 'clock'), $actor),
             TicketStatus::CEK_ULANG => $this->toRole(Role::HELPDESK, $notice('Pelanggan masih terkendala, perlu cek ulang.', 'refresh-cw'), $actor),
+            TicketStatus::ANTRIAN_TEKNISI => $this->toRole(Role::CS, $notice('Perlu kunjungan teknisi, sedang menunggu jadwal. Kabari pelanggan.', 'hourglass'), $actor),
             TicketStatus::PERBAIKAN => $this->repairStarted($ticket, $actor, $notice),
             TicketStatus::MENUNGGU_KONFIRMASI => $this->toRole(Role::CS, $notice('Sudah diperbaiki, siap dikonfirmasi ke pelanggan.', 'message-square'), $actor),
             default => null,

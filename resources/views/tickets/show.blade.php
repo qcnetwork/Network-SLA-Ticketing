@@ -4,9 +4,11 @@
     @php
         $status = $ticket->status;
         $can = fn (A $action) => auth()->user()->can('perform', [$ticket, $action]);
-        $stepIndex = array_search(match ($status) { S::CEK_ULANG => S::HELPDESK_CEK, S::GAMAS => S::PERBAIKAN, default => $status }, $flow, true);
+        // Helpdesk still holds a queued ticket until a technician is assigned, so it stays on their step.
+        $stepIndex = array_search(match ($status) { S::CEK_ULANG, S::ANTRIAN_TEKNISI => S::HELPDESK_CEK, S::GAMAS => S::PERBAIKAN, default => $status }, $flow, true);
         $canClaim = $can(A::KLAIM_HELPDESK) && in_array($status, [S::ANTRIAN_HELPDESK, S::CEK_ULANG], true);
-        $canResolve = $can(A::SELESAI_REMOTE) && in_array($status, [S::HELPDESK_CEK, S::CEK_ULANG], true);
+        $canResolve = $can(A::SELESAI_REMOTE) && in_array($status, [S::HELPDESK_CEK, S::CEK_ULANG, S::ANTRIAN_TEKNISI], true);
+        $canQueue = $can(A::ANTRI_TEKNISI) && in_array($status, [S::HELPDESK_CEK, S::CEK_ULANG], true);
         $canRepair = $can(A::MULAI_PERBAIKAN) && $status === S::PERBAIKAN;
         $canReassign = $can(A::UBAH_TEKNISI) && $status === S::PERBAIKAN;
         $canConfirm = $can(A::KONFIRMASI_NORMAL) && $status === S::MENUNGGU_KONFIRMASI;
@@ -75,6 +77,9 @@
         @endif
         @if ($status === S::CEK_ULANG)
             <p class="mt-3 flex items-center gap-1 text-xs font-medium text-rose-600"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>Pelanggan melaporkan masih terkendala. Tiket kembali ke Helpdesk untuk cek ulang.</p>
+        @endif
+        @if ($status === S::ANTRIAN_TEKNISI)
+            <p class="mt-3 flex items-center gap-1 text-xs font-medium text-yellow-700"><i data-lucide="hourglass" class="h-3.5 w-3.5"></i>Perlu kunjungan teknisi. Menunggu teknisi tersedia untuk ditugaskan.</p>
         @endif
     </div>
 
@@ -287,8 +292,15 @@
             @endif
 
             @if ($canResolve)
-                <div class="card p-5" x-data="{ mode: 'remote', modem: @js(old('modem', $ticket->modem ?? '')) }">
-                    <h3 class="mb-3 font-semibold">Hasil Pengecekan Helpdesk</h3>
+                @php($queued = $status === S::ANTRIAN_TEKNISI ? $ticket->histories->where('action', A::ANTRI_TEKNISI)->last() : null)
+                <div class="card p-5" x-data="{ mode: @js($queued ? 'teknisi' : 'remote'), modem: @js(old('modem', $ticket->modem ?? '')) }">
+                    <h3 class="mb-3 font-semibold">{{ $queued ? 'Antrian Teknisi' : 'Hasil Pengecekan Helpdesk' }}</h3>
+                    @if ($queued)
+                        <p class="mb-4 flex items-start gap-2 rounded-lg bg-yellow-50 p-3 text-xs text-yellow-800">
+                            <i data-lucide="hourglass" class="mt-0.5 h-3.5 w-3.5 shrink-0"></i>
+                            <span>Menunggu teknisi sejak {{ $queued->created_at->format('d/m/Y H:i') }} ({{ $queued->created_at->diffForHumans() }}). {{ $queued->notes }}</span>
+                        </p>
+                    @endif
                     <div class="mb-4">
                         <label class="label" for="modem">Modem / ONT Pelanggan</label>
                         <input id="modem" x-model="modem" list="modem_suggestions" maxlength="100" class="input" placeholder="Contoh: ZTE F609">
@@ -329,6 +341,18 @@
                         </div>
                         <button class="btn-warning w-full"><i data-lucide="wrench" class="h-4 w-4"></i>Tugaskan Teknisi</button>
                     </form>
+
+                    @if ($canQueue)
+                        {{-- For when a visit is needed but every technician's route is already full today. --}}
+                        <form method="POST" action="{{ $actionUrl(A::ANTRI_TEKNISI) }}" x-show="mode === 'teknisi'" x-cloak class="mt-4 space-y-3 border-t border-slate-100 pt-4">
+                            @csrf
+                            <input type="hidden" name="modem" :value="modem">
+                            <p class="text-sm font-medium text-slate-700">Teknisi belum tersedia?</p>
+                            <p class="text-xs text-slate-500">Masukkan ke Antrian Teknisi dulu. Teknisi bisa ditugaskan nanti dari tiket ini.</p>
+                            <textarea name="notes" rows="2" class="input" required placeholder="Kendala yang perlu dicek di lokasi, contoh: LOS merah, perlu cek ODP"></textarea>
+                            <button class="btn-secondary w-full"><i data-lucide="hourglass" class="h-4 w-4 text-yellow-600"></i>Masukkan Antrian Teknisi</button>
+                        </form>
+                    @endif
                 </div>
             @endif
 

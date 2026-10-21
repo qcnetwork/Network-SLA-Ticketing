@@ -10,6 +10,7 @@ enum TicketAction: string
     case KLAIM_HELPDESK = 'KLAIM_HELPDESK';
     case SELESAI_REMOTE = 'SELESAI_REMOTE';
     case PERLU_TEKNISI = 'PERLU_TEKNISI';
+    case ANTRI_TEKNISI = 'ANTRI_TEKNISI';
     case UBAH_TEKNISI = 'UBAH_TEKNISI';
     case MULAI_PERBAIKAN = 'MULAI_PERBAIKAN';
     case LAPOR_PERBAIKAN_SELESAI = 'LAPOR_PERBAIKAN_SELESAI';
@@ -42,7 +43,7 @@ enum TicketAction: string
     {
         return match ($this) {
             self::TIKET_DIBUAT => [Role::CS, Role::HELPDESK, Role::SPV],
-            self::KLAIM_HELPDESK, self::SELESAI_REMOTE, self::PERLU_TEKNISI, self::UBAH_TEKNISI => [Role::HELPDESK, Role::SPV],
+            self::KLAIM_HELPDESK, self::SELESAI_REMOTE, self::PERLU_TEKNISI, self::ANTRI_TEKNISI, self::UBAH_TEKNISI => [Role::HELPDESK, Role::SPV],
             // Helpdesk may record repair progress on the technician's behalf while technicians still report via Telegram.
             self::MULAI_PERBAIKAN, self::LAPOR_PERBAIKAN_SELESAI => [Role::TEKNISI, Role::HELPDESK, Role::SPV],
             self::SELESAI_EDUKASI_CS, self::TERUSKAN_HELPDESK, self::KONFIRMASI_NORMAL, self::KONFIRMASI_TERKENDALA, self::CATATAN_URGENSI_CS => [Role::CS, Role::SPV],
@@ -66,6 +67,7 @@ enum TicketAction: string
             self::KLAIM_HELPDESK => 'Klaim Helpdesk',
             self::SELESAI_REMOTE => 'Selesai Remote',
             self::PERLU_TEKNISI => 'Eskalasi ke Teknisi',
+            self::ANTRI_TEKNISI => 'Masuk Antrian Teknisi',
             self::UBAH_TEKNISI => 'Ubah Teknisi',
             self::MULAI_PERBAIKAN => 'Mulai Perbaikan',
             self::LAPOR_PERBAIKAN_SELESAI => 'Perbaikan Selesai',

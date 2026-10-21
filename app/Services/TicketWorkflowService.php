@@ -155,8 +155,9 @@ class TicketWorkflowService
                     break;
 
                 case TicketAction::SELESAI_REMOTE:
-                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG],
-                        'Penyelesaian remote hanya bisa dari tahap Helpdesk Cek atau Cek Ulang');
+                    // From the technician queue too: the fault can turn out fixable remotely before anyone visits.
+                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG, TicketStatus::ANTRIAN_TEKNISI],
+                        'Penyelesaian remote hanya bisa dari tahap Helpdesk Cek, Cek Ulang, atau Antrian Teknisi');
                     $ticket->status = TicketStatus::MENUNGGU_KONFIRMASI;
                     $ticket->remote_resolution_notes = $notes ?? 'Masalah diselesaikan secara remote (reset/reboot/rebind).';
                     $ticket->modem = $modem ?? $ticket->modem;
@@ -164,9 +165,20 @@ class TicketWorkflowService
                     $description = "Penyelesaian remote oleh {$actor->name}: {$ticket->remote_resolution_notes}";
                     break;
 
-                case TicketAction::PERLU_TEKNISI:
+                case TicketAction::ANTRI_TEKNISI:
                     $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG],
-                        'Penugasan teknisi hanya bisa dari tahap Helpdesk Cek atau Cek Ulang');
+                        'Tiket hanya bisa masuk Antrian Teknisi dari tahap Helpdesk Cek atau Cek Ulang');
+                    if (! $notes) {
+                        throw ValidationException::withMessages(['notes' => 'Tuliskan kendala yang perlu dicek teknisi di lokasi']);
+                    }
+                    $ticket->modem = $modem ?? $ticket->modem;
+                    $ticket->status = TicketStatus::ANTRIAN_TEKNISI;
+                    $description = "Helpdesk ({$actor->name}): perlu kunjungan teknisi, menunggu teknisi tersedia. Kendala: {$notes}";
+                    break;
+
+                case TicketAction::PERLU_TEKNISI:
+                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG, TicketStatus::ANTRIAN_TEKNISI],
+                        'Penugasan teknisi hanya bisa dari tahap Helpdesk Cek, Cek Ulang, atau Antrian Teknisi');
                     $technicians = $this->activeTechnicians($data['technician_ids'] ?? [],
                         'Pilih minimal satu teknisi aktif untuk eskalasi ke perbaikan');
                     $ticket->modem = $modem ?? $ticket->modem;

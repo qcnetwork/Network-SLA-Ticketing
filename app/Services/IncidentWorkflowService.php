@@ -31,6 +31,7 @@ class IncidentWorkflowService
         TicketStatus::PROSES_CS,
         TicketStatus::ANTRIAN_HELPDESK,
         TicketStatus::HELPDESK_CEK,
+        TicketStatus::ANTRIAN_TEKNISI,
         TicketStatus::PERBAIKAN,
         TicketStatus::CEK_ULANG,
     ];
