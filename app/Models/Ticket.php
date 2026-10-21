@@ -7,6 +7,7 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Concerns\HasTechnicians;
 use App\Services\TelegramTicketList;
+use App\Services\TicketNotifier;
 use App\Support\GeoLocation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -33,7 +34,8 @@ class Ticket extends Model
     protected $guarded = ['id'];
 
     /**
-     * Every change that moves a ticket between nodes, from any workflow, refreshes the Telegram master list.
+     * Every change that moves a ticket between nodes, from any workflow, refreshes the Telegram master list
+     * and notifies the roles that work on the node it reached.
      */
     protected static function booted(): void
     {
@@ -43,6 +45,14 @@ class Ticket extends Model
             }
         });
         static::deleted(fn () => TelegramTicketList::queueRefresh());
+
+        // created/updated rather than saved: wasRecentlyCreated stays true for later saves in the same request.
+        static::created(fn (Ticket $ticket) => app(TicketNotifier::class)->statusChanged($ticket, auth()->user()));
+        static::updated(function (Ticket $ticket) {
+            if ($ticket->wasChanged('status')) {
+                app(TicketNotifier::class)->statusChanged($ticket, auth()->user());
+            }
+        });
     }
 
     protected function casts(): array

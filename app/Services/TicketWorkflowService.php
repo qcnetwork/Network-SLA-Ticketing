@@ -34,6 +34,7 @@ class TicketWorkflowService
         private TelegramService $telegram,
         private TelegramOutbox $outbox,
         private DocumentationPhotoStore $photoStore,
+        private TicketNotifier $notifier,
     ) {}
 
     /**
@@ -195,6 +196,8 @@ class TicketWorkflowService
                     }
                     $ticket->technicians()->sync($technicians->modelKeys());
                     $ticket->setRelation('technicians', $technicians);
+                    // The status stays Perbaikan, so only the newly added technicians hear about it.
+                    $this->notifier->techniciansAssigned($ticket, $technicians->diff($current), $actor);
                     $description = "Helpdesk ({$actor->name}) mengubah teknisi dari [".($current->pluck('name')->implode(', ') ?: '-')
                         ."] menjadi [{$ticket->technicianNames()}]. Alasan: {$notes}";
                     break;

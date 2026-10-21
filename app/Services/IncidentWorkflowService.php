@@ -39,6 +39,7 @@ class IncidentWorkflowService
         private TelegramService $telegram,
         private TelegramOutbox $outbox,
         private DocumentationPhotoStore $photoStore,
+        private TicketNotifier $notifier,
     ) {}
 
     /**
@@ -62,6 +63,7 @@ class IncidentWorkflowService
 
             $this->record($incident, IncidentAction::GAMAS_DIBUAT, $actor, $incident->cause ?? 'Gangguan massal dibuka.');
             $this->attachTickets($incident, $ticketIds, $actor);
+            $this->notifier->gamasOpened($incident, $actor);
 
             return $incident;
         });

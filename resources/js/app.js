@@ -1,10 +1,12 @@
 import Alpine from 'alpinejs';
 import { createIcons } from 'lucide';
 import icons from './icons';
+import notificationBell from './notification-bell';
 import optionSearch from './option-search';
 import photoInput from './photo-input';
 
 window.Alpine = Alpine;
+Alpine.data('notificationBell', notificationBell);
 Alpine.data('optionSearch', optionSearch);
 Alpine.data('photoInput', photoInput);
 Alpine.start();
