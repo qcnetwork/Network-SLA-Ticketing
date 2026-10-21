@@ -60,6 +60,24 @@ class TicketCategoryTest extends TestCase
         $this->get('/categories')->assertOk()->assertSee('Kembali ke Pengaturan');
     }
 
+    public function test_create_form_searches_only_the_listed_categories(): void
+    {
+        $category = TicketCategory::query()->where('name', 'Lainnya')->sole();
+        $category->update(['active' => false]);
+
+        $this->actingAs($this->userWithRole(Role::CS))->get('/tickets/create')->assertOk()
+            ->assertSee('x-data="optionSearch(', false)
+            ->assertSee('<input type="hidden" name="category" :value="value">', false)
+            ->assertSee('Internet Lambat')
+            ->assertDontSee('Lainnya');
+
+        // The server refuses anything outside the list, whatever the browser sends.
+        $this->post('/tickets', [
+            'customer_name' => 'Budi', 'customer_phone' => '081234567890', 'category' => 'Kategori Ngasal',
+            'priority' => 'SEDANG', 'complaint' => 'Internet mati',
+        ])->assertSessionHasErrors('category');
+    }
+
     public function test_new_category_is_offered_when_creating_a_ticket(): void
     {
         $this->actingAs($this->supervisor)->post('/categories', ['name' => ' Pindah Lokasi '])->assertSessionHasNoErrors();

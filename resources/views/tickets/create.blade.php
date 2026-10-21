@@ -60,11 +60,8 @@
                 </div>
                 <div class="sm:col-span-2">
                     <label class="label" for="category">Kategori Kendala <span class="text-rose-500">*</span></label>
-                    <select id="category" name="category" class="input" required>
-                        @foreach ($categories as $category)
-                            <option value="{{ $category }}" @selected(old('category') === $category)>{{ $category }}</option>
-                        @endforeach
-                    </select>
+                    <x-option-search name="category" id="category" :options="$categories" :selected="old('category')"
+                        placeholder="Ketik untuk mencari, contoh: los, lambat, modem" message="Pilih kategori yang ada di daftar" />
                     <x-field-error name="category" />
                 </div>
                 <div class="sm:col-span-2">
