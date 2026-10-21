@@ -39,6 +39,7 @@ class MonthlySummarySheet extends StringValueBinder implements FromArray, Should
             ['Total Tiket Masuk', $r['total']],
             ['Tiket Selesai (Tutup)', $r['closed']],
             ['Tiket Masih Berjalan', $r['in_progress']],
+            ['Pending (Menunggu Respon Pelanggan)', $r['pending']],
             ['Diselesaikan Remote', $r['remote_resolved']],
             ['Ditangani Teknisi', $r['technician_assigned']],
             ['Sempat Terkendala (Cek Ulang)', $r['rechecked']],
@@ -46,10 +47,17 @@ class MonthlySummarySheet extends StringValueBinder implements FromArray, Should
             [],
             ['Kategori Gangguan', 'Jumlah', 'Persentase'],
         ];
-        $this->headingRows = [4, 13];
+        $this->headingRows = [4, count($rows)];
 
         foreach ($r['categories'] as $category) {
             $rows[] = [$category['category'], $category['count'], $category['percentage'].'%'];
+        }
+
+        $rows[] = [];
+        $rows[] = ['Penyelesaian Tiket', 'Jumlah', 'Persentase'];
+        $this->headingRows[] = count($rows);
+        foreach ($r['closure'] as $row) {
+            $rows[] = [$row['label'], $row['count'], $row['percentage'].'%'];
         }
 
         $rows[] = [];

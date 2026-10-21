@@ -6,6 +6,7 @@ use App\Enums\TicketAction;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Ticket;
+use App\Models\TicketHistory;
 use Illuminate\Support\Carbon;
 
 class MonthlyReportService
@@ -13,6 +14,27 @@ class MonthlyReportService
     public const MONTH_NAMES = [
         1 => 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
         'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+    ];
+
+    /**
+     * Who closed a ticket is whoever did its last resolving step; the customer's confirmation
+     * (or the automatic close) only seals it.
+     */
+    private const RESOLVED_BY = [
+        'SELESAI_EDUKASI_CS' => 'closed_cs',
+        'SELESAI_REMOTE' => 'closed_helpdesk',
+        'LAPOR_PERBAIKAN_SELESAI' => 'closed_teknisi',
+        'GAMAS_SELESAI' => 'closed_gamas',
+    ];
+
+    public const CLOSURE_LABELS = [
+        'closed_cs' => 'Ditutup oleh CS (edukasi)',
+        'closed_helpdesk' => 'Ditutup oleh Helpdesk (remote)',
+        'closed_teknisi' => 'Ditutup oleh Teknisi (perbaikan lapangan)',
+        'closed_gamas' => 'Ditutup lewat Gamas',
+        'closed_other' => 'Ditutup (lainnya)',
+        'pending' => 'Pending: menunggu respon pelanggan',
+        'in_progress' => 'Masih diproses',
     ];
 
     /**
@@ -47,6 +69,11 @@ class MonthlyReportService
         $year = $start->year;
         $month = $start->month;
         $tickets = Ticket::query()
+            ->select('tickets.*')
+            ->addSelect(['resolution_action' => TicketHistory::query()->select('action')
+                ->whereColumn('ticket_id', 'tickets.id')
+                ->whereIn('action', array_keys(self::RESOLVED_BY))
+                ->orderByDesc('id')->limit(1)])
             ->with(['technicians', 'helpdesk'])
             ->withExists(['histories as was_rechecked' => fn ($query) => $query->where('action', TicketAction::KONFIRMASI_TERKENDALA)])
             ->whereBetween('created_at', [$start, $end])
@@ -69,6 +96,18 @@ class MonthlyReportService
         $priorities = collect(TicketPriority::cases())
             ->mapWithKeys(fn (TicketPriority $p) => [$p->value => $tickets->where('priority', $p)->count()]);
 
+        // Every ticket lands in exactly one group, so the percentages add up to the whole period.
+        $closureCounts = $tickets->countBy(fn (Ticket $t) => match (true) {
+            $t->status === TicketStatus::TUTUP => self::RESOLVED_BY[$t->resolution_action] ?? 'closed_other',
+            $t->status === TicketStatus::MENUNGGU_KONFIRMASI => 'pending',
+            default => 'in_progress',
+        });
+        $closure = collect(self::CLOSURE_LABELS)
+            ->map(fn (string $label, string $key) => ['key' => $key, 'label' => $label, 'count' => $closureCounts[$key] ?? 0, 'percentage' => $percent($closureCounts[$key] ?? 0)])
+            // "Lainnya" only appears when some closed ticket has no resolving step on record.
+            ->reject(fn (array $row) => $row['key'] === 'closed_other' && $row['count'] === 0)
+            ->values();
+
         return [
             'year' => $year,
             'month' => $month,
@@ -80,6 +119,8 @@ class MonthlyReportService
             'rechecked' => $tickets->where('was_rechecked', true)->count(),
             'resolution_rate' => $percent($closed),
             'categories' => $categories,
+            'closure' => $closure,
+            'pending' => $closureCounts['pending'] ?? 0,
             'priorities' => $priorities,
             'technicians' => $technicians,
             'tickets' => $tickets,

@@ -10,6 +10,7 @@
             ['Total Tiket', $r['total'], 'inbox', 'text-slate-800'],
             ['Selesai (Tutup)', $r['closed'], 'check-circle-2', 'text-emerald-600'],
             ['Masih Berjalan', $r['in_progress'], 'loader', 'text-amber-600'],
+            ['Pending Pelanggan', $r['pending'], 'message-square', 'text-purple-600'],
             ['Resolution Rate', $r['resolution_rate'].'%', 'target', 'text-indigo-600'],
             ['Selesai Remote', $r['remote_resolved'], 'zap', 'text-sky-600'],
             ['Ditangani Teknisi', $r['technician_assigned'], 'wrench', 'text-orange-600'],
@@ -59,7 +60,7 @@
         </form>
     </div>
 
-    <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+    <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
         @foreach ($kpis as [$label, $value, $icon, $color])
             <div class="card p-4">
                 <div class="flex items-center gap-1 text-xs font-medium text-slate-500"><i data-lucide="{{ $icon }}" class="h-3.5 w-3.5"></i>{{ $label }}</div>
@@ -67,6 +68,46 @@
             </div>
         @endforeach
     </div>
+
+    @php
+        // Same hues as the matching ticket statuses, so CS reads cyan like "Proses CS", and so on.
+        $closureColors = [
+            'closed_cs' => 'bg-cyan-500',
+            'closed_helpdesk' => 'bg-blue-500',
+            'closed_teknisi' => 'bg-orange-500',
+            'closed_gamas' => 'bg-red-500',
+            'closed_other' => 'bg-emerald-500',
+            'pending' => 'bg-purple-500',
+            'in_progress' => 'bg-slate-300',
+        ];
+    @endphp
+    <section class="card mb-6 p-5">
+        <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="font-semibold">Penyelesaian Tiket</h2>
+            <p class="text-xs text-slate-500">Siapa yang menyelesaikan tiket, dari total {{ $r['total'] }} tiket periode ini. Tiket yang tutup otomatis dihitung untuk yang menyelesaikannya.</p>
+        </div>
+        @if ($r['total'] > 0)
+            <div class="mb-5 flex h-3 overflow-hidden rounded-full bg-slate-100" role="img" aria-label="Komposisi penyelesaian tiket">
+                @foreach ($r['closure'] as $row)
+                    @if ($row['count'] > 0)
+                        <div class="{{ $closureColors[$row['key']] }}" style="width: {{ $row['count'] / $r['total'] * 100 }}%" title="{{ $row['label'] }}: {{ $row['count'] }} ({{ $row['percentage'] }}%)"></div>
+                    @endif
+                @endforeach
+            </div>
+            <div class="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+                @foreach ($r['closure'] as $row)
+                    <div class="flex items-center gap-3 text-sm">
+                        <span class="h-3 w-3 shrink-0 rounded-sm {{ $closureColors[$row['key']] }}"></span>
+                        <span class="flex-1 text-slate-700">{{ $row['label'] }}</span>
+                        <span class="font-semibold text-slate-900">{{ $row['percentage'] }}%</span>
+                        <span class="w-14 text-right text-xs text-slate-500">{{ $row['count'] }} tiket</span>
+                    </div>
+                @endforeach
+            </div>
+        @else
+            <p class="text-sm text-slate-400">Belum ada tiket pada periode ini.</p>
+        @endif
+    </section>
 
     <div class="grid gap-6 lg:grid-cols-2">
         <section class="card p-5">
