@@ -436,7 +436,11 @@ class TicketWorkflowTest extends TestCase
     {
         $ticket = $this->createTicket(['category' => 'Internet Lambat / Ping Tinggi']);
         $this->act($this->cs, $ticket, 'UBAH_KATEGORI', ['category' => 'Lainnya'])->assertForbidden();
-        $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertSee('Ubah Kategori Kendala');
+        $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertSee('Ubah Kategori Kendala')
+            // The category is picked from a search field that starts on the ticket's current category.
+            ->assertSee('id="recategorize_category"', false)
+            ->assertSee('x-data="optionSearch(', false)
+            ->assertSee("'Internet Lambat \\/ Ping Tinggi', 'Pilih kategori yang ada di daftar')", false);
 
         $this->act($this->helpdesk, $ticket, 'UBAH_KATEGORI', ['category' => 'Internet Lambat / Ping Tinggi'])->assertSessionHasErrors('category');
         $this->act($this->helpdesk, $ticket, 'UBAH_KATEGORI', ['category' => 'Bukan kategori'])->assertSessionHasErrors('category');

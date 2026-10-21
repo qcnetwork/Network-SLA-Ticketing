@@ -473,11 +473,8 @@
                     <p class="text-sm text-slate-500">Sesuaikan kategori jika hasil pengecekan berbeda dari laporan awal CS.</p>
                     <div>
                         <label class="label" for="recategorize_category">Kategori sebenarnya</label>
-                        <select id="recategorize_category" name="category" class="input" required>
-                            @foreach ($categories as $category)
-                                <option value="{{ $category }}" @selected($category === $ticket->category)>{{ $category }}</option>
-                            @endforeach
-                        </select>
+                        <x-option-search name="category" id="recategorize_category" :options="$categories" :selected="old('category', $ticket->category)"
+                            placeholder="Ketik untuk mencari kategori" message="Pilih kategori yang ada di daftar" />
                         <x-field-error name="category" />
                     </div>
                     <textarea name="notes" rows="2" class="input" maxlength="2000" placeholder="Alasan (opsional), contoh: Dicek di lokasi ternyata LOS merah, kabel drop putus"></textarea>
