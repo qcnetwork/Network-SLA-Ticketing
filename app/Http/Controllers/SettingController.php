@@ -5,11 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\ModemType;
 use App\Models\Setting;
 use App\Models\TicketCategory;
+use App\Services\DatabaseBackup;
 use App\Services\TelegramService;
 use App\Services\TelegramTicketList;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class SettingController extends Controller
 {
@@ -56,6 +59,24 @@ class SettingController extends Controller
         TelegramTicketList::queueRefresh();
 
         return redirect()->route('settings.edit')->with('success', 'Pengaturan berhasil disimpan');
+    }
+
+    /**
+     * Download a snapshot of the database. It holds password hashes, the bot token and every
+     * customer's details, so the supervisor confirms their password first and the download is logged.
+     */
+    public function backup(Request $request, DatabaseBackup $backup): BinaryFileResponse
+    {
+        $request->validate(
+            ['password' => ['required', 'current_password']],
+            ['password.current_password' => 'Password salah'],
+            ['password' => 'password'],
+        );
+
+        $path = $backup->create();
+        Log::info('Database backup downloaded', ['user' => $request->user()->username, 'ip' => $request->ip()]);
+
+        return response()->download($path, basename($path), ['Content-Type' => 'application/vnd.sqlite3'])->deleteFileAfterSend();
     }
 
     public function test(TelegramService $telegram): RedirectResponse

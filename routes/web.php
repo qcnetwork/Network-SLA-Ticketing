@@ -62,5 +62,6 @@ Route::middleware('auth')->group(function () {
         Route::get('/settings', [SettingController::class, 'edit'])->name('settings.edit');
         Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
         Route::post('/settings/telegram-test', [SettingController::class, 'test'])->name('settings.test');
+        Route::post('/settings/backup', [SettingController::class, 'backup'])->middleware('throttle:5,1')->name('settings.backup');
     });
 });

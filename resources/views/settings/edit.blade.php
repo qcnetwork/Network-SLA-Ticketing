@@ -87,5 +87,25 @@
             </div>
             <button class="btn-secondary"><i data-lucide="send" class="h-4 w-4"></i>Kirim Pesan Uji</button>
         </form>
+
+        <form method="POST" action="{{ route('settings.backup') }}" class="card space-y-4 p-6">
+            @csrf
+            <div>
+                <h2 class="flex items-center gap-2 font-semibold"><i data-lucide="database" class="h-4 w-4 text-emerald-600"></i>Backup Database</h2>
+                <p class="mt-1 text-sm text-slate-500">Unduh salinan lengkap database: tiket, riwayat, pengguna, dan pengaturan. Aman diunduh saat aplikasi sedang dipakai. Foto/video dokumentasi tidak ikut, karena tersimpan terpisah di <span class="font-mono text-xs">storage/app/private</span>.</p>
+            </div>
+            <p class="flex items-start gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+                <i data-lucide="alert-triangle" class="mt-0.5 h-3.5 w-3.5 shrink-0"></i>
+                File ini berisi data pelanggan, password akun (terenkripsi), dan token bot Telegram. Simpan di tempat aman dan jangan dibagikan.
+            </p>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div class="flex-1">
+                    <label class="label" for="backup_password">Konfirmasi password Anda</label>
+                    <input id="backup_password" name="password" type="password" class="input" required autocomplete="current-password">
+                    <x-field-error name="password" />
+                </div>
+                <button class="btn-success"><i data-lucide="download" class="h-4 w-4"></i>Download Backup</button>
+            </div>
+        </form>
     </div>
 </x-layouts.app>
