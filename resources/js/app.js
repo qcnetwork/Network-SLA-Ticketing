@@ -4,11 +4,13 @@ import icons from './icons';
 import notificationBell from './notification-bell';
 import optionSearch from './option-search';
 import photoInput from './photo-input';
+import topScrollbar from './top-scrollbar';
 
 window.Alpine = Alpine;
 Alpine.data('notificationBell', notificationBell);
 Alpine.data('optionSearch', optionSearch);
 Alpine.data('photoInput', photoInput);
+Alpine.data('topScrollbar', topScrollbar);
 Alpine.start();
 
 const renderIcons = () => createIcons({ icons });

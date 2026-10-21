@@ -22,6 +22,7 @@ Route::middleware('auth')->group(function () {
     Route::redirect('/', '/dashboard');
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
+    Route::post('/dashboard/columns', [DashboardController::class, 'columns'])->name('dashboard.columns');
 
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::get('/notifications/history', [NotificationController::class, 'history'])->name('notifications.history');
