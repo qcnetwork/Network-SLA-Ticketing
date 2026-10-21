@@ -48,52 +48,62 @@ class ReportTest extends TestCase
     public function test_report_splits_tickets_by_who_closed_them_and_pending(): void
     {
         Excel::fake();
+        // CS: Helpdesk never checked it, even if it was forwarded to the queue first.
         $this->ticketResolvedBy(TicketStatus::TUTUP, ['TIKET_DIBUAT', 'SELESAI_EDUKASI_CS']);
-        $this->ticketResolvedBy(TicketStatus::TUTUP, ['TIKET_DIBUAT', 'KLAIM_HELPDESK', 'SELESAI_REMOTE', 'KONFIRMASI_NORMAL']);
-        // Remote fix did not hold; the technician's later repair is what closed it.
-        $this->ticketResolvedBy(TicketStatus::TUTUP, ['SELESAI_REMOTE', 'KONFIRMASI_TERKENDALA', 'PERLU_TEKNISI', 'LAPOR_PERBAIKAN_SELESAI', 'KONFIRMASI_NORMAL']);
-        // No customer reply: closed automatically, still credited to the technician.
-        $this->ticketResolvedBy(TicketStatus::TUTUP, ['PERLU_TEKNISI', 'LAPOR_PERBAIKAN_SELESAI', 'TUTUP_OTOMATIS']);
+        $this->ticketResolvedBy(TicketStatus::TUTUP, ['TIKET_DIBUAT', 'TERUSKAN_HELPDESK', 'SELESAI_EDUKASI_CS']);
+        // Helpdesk: checked and fixed without a visit.
+        $this->ticketResolvedBy(TicketStatus::TUTUP, ['TIKET_DIBUAT', 'TERUSKAN_HELPDESK', 'KLAIM_HELPDESK', 'SELESAI_REMOTE', 'KONFIRMASI_NORMAL']);
+        // Technician: any ticket that was sent for a visit, whatever came after.
+        $this->ticketResolvedBy(TicketStatus::TUTUP, ['KLAIM_HELPDESK', 'SELESAI_REMOTE', 'KONFIRMASI_TERKENDALA', 'PERLU_TEKNISI', 'LAPOR_PERBAIKAN_SELESAI', 'KONFIRMASI_NORMAL']);
+        $this->ticketResolvedBy(TicketStatus::TUTUP, ['KLAIM_HELPDESK', 'PERLU_TEKNISI', 'LAPOR_PERBAIKAN_SELESAI', 'TUTUP_OTOMATIS']);
+        $this->ticketResolvedBy(TicketStatus::TUTUP, ['KLAIM_HELPDESK', 'PERLU_TEKNISI', 'GABUNG_GAMAS', 'GAMAS_SELESAI', 'KONFIRMASI_NORMAL']);
+        // Gamas: settled by the mass repair before Helpdesk or a technician handled it on its own.
         $this->ticketResolvedBy(TicketStatus::TUTUP, ['GABUNG_GAMAS', 'GAMAS_SELESAI', 'KONFIRMASI_NORMAL']);
-        $this->ticketResolvedBy(TicketStatus::MENUNGGU_KONFIRMASI, ['SELESAI_REMOTE']);
+        $this->ticketResolvedBy(TicketStatus::MENUNGGU_KONFIRMASI, ['KLAIM_HELPDESK', 'SELESAI_REMOTE']);
         $this->ticketResolvedBy(TicketStatus::PROSES_CS, ['TIKET_DIBUAT']);
         // Resolved once, then reopened: it is back in progress, not closed.
-        $this->ticketResolvedBy(TicketStatus::CEK_ULANG, ['SELESAI_REMOTE', 'KONFIRMASI_TERKENDALA']);
+        $this->ticketResolvedBy(TicketStatus::CEK_ULANG, ['KLAIM_HELPDESK', 'SELESAI_REMOTE', 'KONFIRMASI_TERKENDALA']);
 
         $report = app(MonthlyReportService::class)->build(2026, 10);
         $closure = $report['closure']->keyBy('key');
 
-        $this->assertSame(8, $report['total']);
-        $this->assertSame([1, 13], [$closure['closed_cs']['count'], $closure['closed_cs']['percentage']]);
-        $this->assertSame([1, 13], [$closure['closed_helpdesk']['count'], $closure['closed_helpdesk']['percentage']]);
-        $this->assertSame([2, 25], [$closure['closed_teknisi']['count'], $closure['closed_teknisi']['percentage']]);
-        $this->assertSame([1, 13], [$closure['closed_gamas']['count'], $closure['closed_gamas']['percentage']]);
-        $this->assertSame([1, 13], [$closure['pending']['count'], $closure['pending']['percentage']]);
-        $this->assertSame([2, 25], [$closure['in_progress']['count'], $closure['in_progress']['percentage']]);
-        $this->assertFalse($closure->has('closed_other'));
-        $this->assertSame(8, $report['closure']->sum('count'));
+        $this->assertSame(10, $report['total']);
+        $this->assertSame([2, 20], [$closure['closed_cs']['count'], $closure['closed_cs']['percentage']]);
+        $this->assertSame([1, 10], [$closure['closed_helpdesk']['count'], $closure['closed_helpdesk']['percentage']]);
+        $this->assertSame([3, 30], [$closure['closed_teknisi']['count'], $closure['closed_teknisi']['percentage']]);
+        $this->assertSame([1, 10], [$closure['closed_gamas']['count'], $closure['closed_gamas']['percentage']]);
+        $this->assertSame([1, 10], [$closure['pending']['count'], $closure['pending']['percentage']]);
+        $this->assertSame([2, 20], [$closure['in_progress']['count'], $closure['in_progress']['percentage']]);
+        $this->assertSame(10, $report['closure']->sum('count'));
+        // KPI cards: 7 of 10 closed, 3 still running, 1 of those pending.
+        $this->assertSame(70, $report['percentages']['closed']);
+        $this->assertSame(30, $report['percentages']['in_progress']);
+        $this->assertSame(10, $report['percentages']['pending']);
 
         $this->actingAs($this->userWithRole(Role::SPV))->get('/reports?year=2026&month=10')->assertOk()
             ->assertSee('Penyelesaian Tiket')
-            ->assertSee('Ditutup oleh Teknisi (perbaikan lapangan)')
-            ->assertSee('Pending: menunggu respon pelanggan');
+            ->assertSee('Ditutup oleh Teknisi (sempat ditangani teknisi)')
+            ->assertSee('Pending: menunggu respon pelanggan')
+            ->assertSee('70%')
+            ->assertSee('dari 10 tiket');
 
         $this->get('/reports/export?year=2026&month=10')->assertOk();
         Excel::assertDownloaded('Laporan_Ticketing_2026_10.xlsx', function (MonthlyReportExport $export) {
             [$summary] = $export->sheets();
 
-            return in_array(['Ditutup oleh CS (edukasi)', 1, '13%'], $summary->array(), true)
-                && in_array(['Pending (Menunggu Respon Pelanggan)', 1], $summary->array(), true);
+            return in_array(['Ditutup oleh CS (tanpa dicek Helpdesk)', 2, '20%'], $summary->array(), true)
+                && in_array(['Tiket Selesai (Tutup)', 7, '70%'], $summary->array(), true)
+                && in_array(['Pending (Menunggu Respon Pelanggan)', 1, '10%'], $summary->array(), true);
         });
     }
 
-    public function test_closed_ticket_without_a_resolving_step_is_listed_as_other(): void
+    public function test_closed_ticket_helpdesk_never_checked_counts_for_cs(): void
     {
         $this->ticketResolvedBy(TicketStatus::TUTUP, ['TIKET_DIBUAT']);
 
         $closure = app(MonthlyReportService::class)->build(2026, 10)['closure']->keyBy('key');
 
-        $this->assertSame(1, $closure['closed_other']['count']);
+        $this->assertSame(1, $closure['closed_cs']['count']);
     }
 
     public function test_daily_report_exports_that_day(): void
