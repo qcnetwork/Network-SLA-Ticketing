@@ -45,6 +45,21 @@ class TicketCategoryTest extends TestCase
         $this->actingAs($this->supervisor)->get('/categories')->assertOk()->assertSee('LOS Merah / Kabel Putus');
     }
 
+    public function test_categories_and_modems_are_reached_from_settings_not_the_navbar(): void
+    {
+        $this->actingAs($this->supervisor)->get('/settings')->assertOk()
+            ->assertSee('Pilihan Tiket')
+            ->assertSee(route('categories.index'))
+            ->assertSee(route('modems.index'))
+            ->assertSee('6 aktif');
+
+        $this->get('/dashboard')->assertOk()
+            ->assertDontSee(route('categories.index'))
+            ->assertDontSee(route('modems.index'));
+
+        $this->get('/categories')->assertOk()->assertSee('Kembali ke Pengaturan');
+    }
+
     public function test_new_category_is_offered_when_creating_a_ticket(): void
     {
         $this->actingAs($this->supervisor)->post('/categories', ['name' => ' Pindah Lokasi '])->assertSessionHasNoErrors();

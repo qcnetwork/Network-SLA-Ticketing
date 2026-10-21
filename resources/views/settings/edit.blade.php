@@ -2,7 +2,25 @@
     <div class="mx-auto max-w-2xl space-y-6">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Pengaturan</h1>
-            <p class="text-sm text-slate-500">Integrasi bot Telegram dan nomor CS.</p>
+            <p class="text-sm text-slate-500">Pilihan tiket, integrasi bot Telegram, dan nomor CS.</p>
+        </div>
+
+        <div class="card divide-y divide-slate-100">
+            <h2 class="flex items-center gap-2 p-6 pb-4 font-semibold"><i data-lucide="clipboard-list" class="h-4 w-4 text-indigo-600"></i>Pilihan Tiket</h2>
+            @foreach ([
+                ['route' => 'categories.index', 'icon' => 'tag', 'title' => 'Kategori Kendala', 'description' => 'Pilihan kategori saat membuat tiket dan mengubah kategori.', 'count' => $categoryCount],
+                ['route' => 'modems.index', 'icon' => 'router', 'title' => 'Jenis Modem / ONT', 'description' => 'Saran tipe modem saat Helpdesk mencatat perangkat pelanggan.', 'count' => $modemCount],
+            ] as $link)
+                <a href="{{ route($link['route']) }}" class="flex items-center gap-3 px-6 py-4 transition hover:bg-slate-50">
+                    <i data-lucide="{{ $link['icon'] }}" class="h-5 w-5 shrink-0 text-slate-400"></i>
+                    <div class="min-w-0 flex-1">
+                        <div class="font-medium text-slate-800">{{ $link['title'] }}</div>
+                        <div class="text-sm text-slate-500">{{ $link['description'] }}</div>
+                    </div>
+                    <span class="shrink-0 text-xs text-slate-500">{{ $link['count'] }} aktif</span>
+                    <i data-lucide="chevron-right" class="h-4 w-4 shrink-0 text-slate-300"></i>
+                </a>
+            @endforeach
         </div>
 
         <form method="POST" action="{{ route('settings.update') }}" class="card space-y-4 p-6">

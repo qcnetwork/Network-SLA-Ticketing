@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ModemType;
 use App\Models\Setting;
+use App\Models\TicketCategory;
 use App\Services\TelegramService;
 use App\Services\TelegramTicketList;
 use Illuminate\Http\RedirectResponse;
@@ -13,7 +15,11 @@ class SettingController extends Controller
 {
     public function edit(): View
     {
-        return view('settings.edit', ['settings' => Setting::values()]);
+        return view('settings.edit', [
+            'settings' => Setting::values(),
+            'categoryCount' => TicketCategory::query()->where('active', true)->count(),
+            'modemCount' => ModemType::query()->where('active', true)->count(),
+        ]);
     }
 
     public function update(Request $request): RedirectResponse

@@ -1,6 +1,9 @@
 <x-layouts.app :title="$page['title']">
     <div class="mx-auto max-w-3xl space-y-6">
         <div>
+            <a href="{{ route('settings.edit') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
+                <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke Pengaturan
+            </a>
             <h1 class="text-2xl font-bold text-slate-900">{{ $page['title'] }}</h1>
             <p class="text-sm text-slate-500">{{ $page['description'] }}</p>
         </div>
