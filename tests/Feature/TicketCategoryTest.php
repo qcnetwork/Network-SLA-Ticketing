@@ -98,7 +98,7 @@ class TicketCategoryTest extends TestCase
         $unused = TicketCategory::query()->where('name', 'Router / Modem Rusak (Mati Total)')->sole();
         Ticket::factory()->create(['category' => 'Lainnya']);
 
-        $this->actingAs($this->supervisor)->delete("/categories/{$used->id}")->assertSessionHasErrors('category');
+        $this->actingAs($this->supervisor)->delete("/categories/{$used->id}")->assertSessionHasErrors('option');
         $this->assertModelExists($used);
 
         $this->delete("/categories/{$unused->id}")->assertSessionHasNoErrors();

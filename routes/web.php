@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\IncidentController;
+use App\Http\Controllers\ModemTypeController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SettingController;
@@ -56,7 +57,8 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('role:SPV')->group(function () {
         Route::resource('users', UserController::class)->except('show');
-        Route::resource('categories', TicketCategoryController::class)->only(['index', 'store', 'update', 'destroy']);
+        Route::resource('categories', TicketCategoryController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['categories' => 'id']);
+        Route::resource('modems', ModemTypeController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['modems' => 'id']);
         Route::get('/settings', [SettingController::class, 'edit'])->name('settings.edit');
         Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
         Route::post('/settings/telegram-test', [SettingController::class, 'test'])->name('settings.test');

@@ -20,20 +20,6 @@ class Ticket extends Model
     use HasFactory, HasTechnicians;
 
     /**
-     * Common ONT/modem types, offered as suggestions; Helpdesk can still type any other model.
-     */
-    public const MODEM_SUGGESTIONS = [
-        'ZTE F609',
-        'ZTE F660',
-        'ZTE F670L',
-        'Huawei HG8245H',
-        'Huawei HG8245H5',
-        'Huawei EG8145V5',
-        'Fiberhome AN5506-04-F',
-        'Fiberhome HG6243C',
-    ];
-
-    /**
      * A ticket waiting for customer confirmation closes itself after this long without a response.
      */
     public const CONFIRMATION_TIMEOUT_HOURS = 48;

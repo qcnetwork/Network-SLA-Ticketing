@@ -16,6 +16,8 @@
         $user->hasRole(Role::SPV)
             ? ['route' => 'categories.index', 'label' => 'Kategori', 'icon' => 'tag', 'active' => 'categories.*'] : null,
         $user->hasRole(Role::SPV)
+            ? ['route' => 'modems.index', 'label' => 'Modem', 'icon' => 'router', 'active' => 'modems.*'] : null,
+        $user->hasRole(Role::SPV)
             ? ['route' => 'settings.edit', 'label' => 'Pengaturan', 'icon' => 'settings', 'active' => 'settings.*'] : null,
     ]);
 @endphp

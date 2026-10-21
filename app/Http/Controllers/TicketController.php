@@ -8,6 +8,7 @@ use App\Enums\TicketAction;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Incident;
+use App\Models\ModemType;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
 use App\Models\TicketCategory;
@@ -86,7 +87,7 @@ class TicketController extends Controller
                 TicketStatus::TUTUP,
             ],
             'urgencyLevels' => TicketWorkflowService::URGENCY_LEVELS,
-            'modemSuggestions' => Ticket::MODEM_SUGGESTIONS,
+            'modemSuggestions' => ModemType::activeNames(),
             'categories' => TicketCategory::activeNames(),
             'waTypes' => WhatsAppTemplateService::TYPES,
             'openIncidents' => Incident::query()->open()->latest()->get(),
