@@ -24,7 +24,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ? $title.' · ' : '' }}NetTicket</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/icons/logo-mark.png" type="image/png">
     @include('partials.pwa-head')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -32,7 +32,7 @@
     <header class="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur" x-data="{ open: false }">
         <div class="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
             <a href="{{ route('dashboard') }}" class="flex items-center gap-2 font-bold text-indigo-700">
-                <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white"><i data-lucide="ticket" class="h-5 w-5"></i></span>
+                <img src="/icons/logo-mark.png" alt="" class="h-9 w-9 rounded-lg">
                 <span class="text-lg">NetTicket</span>
             </a>
 

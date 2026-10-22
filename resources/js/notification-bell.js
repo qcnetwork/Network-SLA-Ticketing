@@ -160,7 +160,7 @@ export default (indexUrl, readAllUrl) => ({
             return;
         }
         items.forEach((item) => {
-            const notice = new Notification(item.title, { body: item.body, icon: '/favicon.svg', tag: item.id });
+            const notice = new Notification(item.title, { body: item.body, icon: '/icons/logo-mark.png', tag: item.id });
             notice.onclick = () => {
                 window.focus();
                 window.location.href = item.url;

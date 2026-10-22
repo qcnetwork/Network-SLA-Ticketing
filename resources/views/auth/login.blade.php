@@ -4,16 +4,14 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Masuk · NetTicket</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/icons/logo-mark.png" type="image/png">
     @include('partials.pwa-head')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="flex min-h-screen items-center justify-center bg-gradient-to-br from-indigo-700 via-indigo-600 to-sky-500 px-4 font-sans antialiased">
     <div class="w-full max-w-md">
         <div class="mb-6 text-center text-white">
-            <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 backdrop-blur">
-                <i data-lucide="ticket" class="h-7 w-7"></i>
-            </div>
+            <img src="/icons/ticketing.jpg" alt="QCNet Ticketing" class="mx-auto mb-3 h-28 w-28 rounded-2xl shadow-lg">
             <h1 class="text-2xl font-bold">NetTicket</h1>
             <p class="text-sm text-indigo-100">Sistem Ticketing CS · Helpdesk · Teknisi</p>
         </div>
