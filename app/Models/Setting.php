@@ -24,6 +24,9 @@ class Setting extends Model
         // Today's master list message, kept by TelegramTicketList.
         'ticket_list_message_id' => '',
         'ticket_list_date' => '',
+        // Bot commands: Telegram sends the secret with every webhook call so the endpoint can tell it apart from anyone else.
+        'webhook_secret' => '',
+        'webhook_url' => '',
         'notify_on_new_ticket' => '1',
         'notify_on_status_change' => '1',
         'cs_phone' => '6281234567890',

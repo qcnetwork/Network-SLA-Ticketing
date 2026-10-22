@@ -96,6 +96,25 @@
             <button class="btn-secondary"><i data-lucide="send" class="h-4 w-4"></i>Kirim Pesan Uji</button>
         </form>
 
+        <form method="POST" action="{{ route('settings.commands') }}" class="card flex flex-col gap-3 p-6 sm:flex-row sm:items-center sm:justify-between">
+            @csrf
+            <div class="min-w-0">
+                <h2 class="font-semibold">Perintah Bot</h2>
+                <p class="text-sm text-slate-500">
+                    <span class="font-mono text-xs">/detailtiket TCK-…</span> mengirim detail tiket ke DM anggota grup yang memintanya.
+                    @if (filled($settings['webhook_url']))
+                        <span class="mt-1 block text-emerald-700">Aktif di <span class="font-mono text-xs break-all">{{ $settings['webhook_url'] }}</span></span>
+                        @if ($settings['webhook_url'] !== route('telegram.webhook'))
+                            <span class="mt-1 block text-amber-700">Alamat aplikasi berbeda dari yang terdaftar. Aktifkan ulang dari domain ini.</span>
+                        @endif
+                    @else
+                        <span class="mt-1 block">Belum aktif. Aktifkan dari domain HTTPS aplikasi, dan aktifkan ulang setelah mengganti Bot Token.</span>
+                    @endif
+                </p>
+            </div>
+            <button class="btn-secondary shrink-0"><i data-lucide="zap" class="h-4 w-4"></i>{{ filled($settings['webhook_url']) ? 'Aktifkan Ulang' : 'Aktifkan' }}</button>
+        </form>
+
         <form method="POST" action="{{ route('settings.backup') }}" class="card space-y-4 p-6">
             @csrf
             <div>

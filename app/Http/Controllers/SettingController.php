@@ -11,6 +11,7 @@ use App\Services\TelegramTicketList;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -85,6 +86,37 @@ class SettingController extends Controller
         Log::info('Database backup downloaded', ['user' => $request->user()->username, 'ip' => $request->ip()]);
 
         return response()->download($path, basename($path), ['Content-Type' => 'application/vnd.sqlite3'])->deleteFileAfterSend();
+    }
+
+    /**
+     * Point the bot's webhook at this server and publish its command menu. Telegram only calls
+     * HTTPS URLs, so this must be done while the app is open on its HTTPS domain.
+     */
+    public function enableCommands(TelegramService $telegram): RedirectResponse
+    {
+        $token = (string) Setting::read('bot_token');
+        if ($token === '') {
+            return back()->withErrors(['telegram' => 'Isi dan simpan Bot Token terlebih dahulu']);
+        }
+        $url = route('telegram.webhook');
+        if (! str_starts_with($url, 'https://')) {
+            return back()->withErrors(['telegram' => "Telegram hanya bisa memanggil alamat HTTPS. Buka aplikasi lewat domain HTTPS-nya lalu coba lagi (sekarang: {$url})."]);
+        }
+
+        $secret = Str::random(48);
+        $responses = $telegram->callMany($token, [
+            'webhook' => ['setWebhook', ['url' => $url, 'secret_token' => $secret, 'allowed_updates' => ['message'], 'drop_pending_updates' => true]],
+            'commands' => ['setMyCommands', ['commands' => [
+                ['command' => 'detailtiket', 'description' => 'Kirim detail tiket ke DM, contoh: /detailtiket TCK-20261022-0001'],
+            ]]],
+        ]);
+        if (! ($responses['webhook']['ok'] ?? false)) {
+            return back()->withErrors(['telegram' => 'Gagal mengaktifkan perintah bot: '.($responses['webhook']['description'] ?? 'tidak ada respon')]);
+        }
+
+        Setting::write(['webhook_secret' => $secret, 'webhook_url' => $url]);
+
+        return back()->with('success', 'Perintah bot aktif. Coba ketik /detailtiket di grup atau DM bot.');
     }
 
     public function test(TelegramService $telegram): RedirectResponse

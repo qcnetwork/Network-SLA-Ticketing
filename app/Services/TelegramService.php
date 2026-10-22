@@ -12,6 +12,7 @@ use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 class TelegramService
@@ -196,6 +197,43 @@ class TelegramService
             ."🟡 <b>Status:</b> ANTRIAN HELPDESK\n"
             ."⏰ <i>Waktu: {$ticket->created_at->format('d/m/Y H:i')}</i>\n"
             .'<i>Silakan Helpdesk melakukan pengecekan di Web Dashboard.</i>';
+    }
+
+    /**
+     * Full ticket details for /detailtiket, sent only to the requester's DM since it holds the
+     * customer's contact details.
+     */
+    public function ticketDetailMessage(Ticket $ticket): string
+    {
+        $e = self::escape(...);
+        $ticket->loadMissing(['technicians', 'helpdesk', 'creator', 'incident']);
+        $histories = $ticket->histories()->with('user')->latest('id')->limit(3)->get()->reverse();
+
+        $history = $histories->map(fn ($item) => '• '.$item->created_at->format('d/m H:i').' · '.$e($item->action->label())
+            .' · '.$e($item->user?->name ?? $item->actor_name ?? 'Sistem')
+            .($item->notes ? "\n  <i>".$e(Str::limit($item->notes, 200)).'</i>' : ''))->implode("\n");
+
+        return "📄 <b>[DETAIL TIKET]</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."🎫 <b>No. Tiket:</b> <code>{$e($ticket->ticket_number)}</code>\n"
+            ."⚡ <b>Status:</b> {$ticket->status->telegramLabel()}\n"
+            ."🔥 <b>Prioritas:</b> {$ticket->priority->telegramLabel()}\n"
+            .($ticket->incident ? "📡 <b>Gamas:</b> <code>{$e($ticket->incident->incident_number)}</code>\n" : '')
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."👤 <b>Pelanggan:</b> {$e($ticket->customer_name)} ({$e($ticket->customer_id ?: '-')})\n"
+            ."📱 <b>WhatsApp:</b> {$e($ticket->customer_phone)}\n"
+            ."📍 <b>Alamat:</b> {$e($ticket->customer_address ?: '-')}\n"
+            .($ticket->hasLocation() ? "🗺️ <b>Peta:</b> {$e($ticket->mapsUrl())}\n" : '')
+            .($ticket->modem ? "📟 <b>Modem:</b> {$e($ticket->modem)}\n" : '')
+            ."⚠️ <b>Kategori:</b> {$e($ticket->category)}\n"
+            ."📝 <b>Kendala:</b> {$e(Str::limit($ticket->complaint, 800))}\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            .'✍️ <b>Dibuat:</b> '.$ticket->created_at->format('d/m/Y H:i').' oleh '.$e($ticket->creator?->name ?? '-')."\n"
+            .($ticket->helpdesk ? "🧑‍💻 <b>Helpdesk:</b> {$e($ticket->helpdesk->name)}\n" : '')
+            .($ticket->technicians->isNotEmpty() ? "👷 <b>Teknisi:</b> {$e($ticket->technicianNames())}\n" : '')
+            .($history !== '' ? "🕘 <b>Riwayat terakhir:</b>\n{$history}\n" : '')
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            .'🔗 '.$e(route('tickets.show', $ticket));
     }
 
     public function statusUpdateMessage(Ticket $ticket, TicketStatus $previous, ?string $notes, string $actor): string
