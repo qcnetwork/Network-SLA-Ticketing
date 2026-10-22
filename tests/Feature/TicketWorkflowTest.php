@@ -9,6 +9,7 @@ use App\Models\TelegramLog;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
 use App\Models\User;
+use App\Services\DocumentationPhotoStore;
 use App\Services\MonthlyReportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -430,6 +431,26 @@ class TicketWorkflowTest extends TestCase
 
         $this->actingAs($this->cs)->get("/tickets/{$ticket->ticket_number}")->assertSee('<video src="'.$url.'"', false);
         $this->get($url, ['Range' => 'bytes=0-1023'])->assertStatus(206)->assertHeader('Content-Type', 'video/mp4');
+    }
+
+    public function test_files_php_refused_get_a_readable_message(): void
+    {
+        $ticket = $this->createTicket();
+        $path = tempnam(sys_get_temp_dir(), 'upload');
+        $tooLarge = new UploadedFile($path, 'redaman.mp4', 'video/mp4', UPLOAD_ERR_INI_SIZE, true);
+
+        $this->act($this->helpdesk, $ticket, 'CATATAN_DOKUMENTASI', ['photos' => [$tooLarge]])
+            ->assertSessionHasErrors(['photos.0' => DocumentationPhotoStore::MESSAGES['photos.*.uploaded']]);
+    }
+
+    public function test_a_request_over_post_max_size_explains_the_limit(): void
+    {
+        $ticket = $this->createTicket();
+
+        $this->actingAs($this->helpdesk)
+            ->call('POST', "/tickets/{$ticket->ticket_number}/actions/CATATAN_DOKUMENTASI", server: ['CONTENT_LENGTH' => 1024 ** 4])
+            ->assertStatus(413)
+            ->assertSee('File terlalu besar');
     }
 
     public function test_helpdesk_and_assigned_technician_can_correct_the_complaint_category(): void
