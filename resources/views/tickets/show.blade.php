@@ -11,6 +11,7 @@
         $canQueue = $can(A::ANTRI_TEKNISI) && in_array($status, [S::HELPDESK_CEK, S::CEK_ULANG], true);
         $canRepair = $can(A::MULAI_PERBAIKAN) && $status === S::PERBAIKAN;
         $canReassign = $can(A::UBAH_TEKNISI) && $status === S::PERBAIKAN;
+        $canRequeue = $can(A::ANTRI_TEKNISI) && $status === S::PERBAIKAN;
         $canConfirm = $can(A::KONFIRMASI_NORMAL) && $status === S::MENUNGGU_KONFIRMASI;
         $canUrgency = $can(A::CATATAN_URGENSI_CS) && ! in_array($status, [S::PROSES_CS, S::TUTUP], true);
         $canDocument = $can(A::CATATAN_DOKUMENTASI) && $status !== S::TUTUP;
@@ -370,6 +371,32 @@
                         <div class="grid grid-cols-2 gap-2">
                             <button type="button" @click="editing = false" class="btn-secondary">Batal</button>
                             <button class="btn-warning"><i data-lucide="save" class="h-4 w-4"></i>Simpan</button>
+                        </div>
+                    </form>
+                </div>
+            @endif
+
+            @if ($canRequeue)
+                {{-- For a visit that stalls after it was handed out: no material yet, customer away, bad weather. --}}
+                <div class="card p-5" x-data="{ open: @js($errors->has('notes') && old('requeue')) }">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="hourglass" class="h-4 w-4 text-yellow-600"></i>Pending Kunjungan</h3>
+                            <p class="mt-1 text-sm text-slate-500">Kembalikan ke Antrian Teknisi jika pengerjaan tertunda. Teknisi bisa ditugaskan lagi nanti.</p>
+                        </div>
+                        <button type="button" x-show="! open" @click="open = true" class="btn-secondary shrink-0 px-3 py-1.5 text-xs"><i data-lucide="hourglass" class="h-3.5 w-3.5"></i>Pending</button>
+                    </div>
+                    <form method="POST" action="{{ $actionUrl(A::ANTRI_TEKNISI) }}" x-show="open" x-cloak class="mt-4 space-y-3 border-t border-slate-100 pt-4">
+                        @csrf
+                        <input type="hidden" name="requeue" value="1">
+                        <div>
+                            <label class="label" for="requeue_notes">Alasan pending</label>
+                            <textarea id="requeue_notes" name="notes" rows="2" class="input" required placeholder="Contoh: Material kabel belum tersedia / pelanggan tidak di rumah sampai besok">{{ old('requeue') ? old('notes') : '' }}</textarea>
+                        </div>
+                        <p class="text-xs text-slate-500">Penugasan teknisi <span class="font-medium text-slate-700">{{ $ticket->technicianNames() ?: '-' }}</span> dilepas. Teknisi berikutnya memulai kunjungan dari awal.</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" @click="open = false" class="btn-secondary">Batal</button>
+                            <button class="btn-warning"><i data-lucide="hourglass" class="h-4 w-4"></i>Ke Antrian</button>
                         </div>
                     </form>
                 </div>

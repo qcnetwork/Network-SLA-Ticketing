@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Support\GeoLocation;
 use App\Support\PhoneNumber;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -167,14 +168,29 @@ class TicketWorkflowService
                     break;
 
                 case TicketAction::ANTRI_TEKNISI:
-                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG],
-                        'Tiket hanya bisa masuk Antrian Teknisi dari tahap Helpdesk Cek atau Cek Ulang');
+                    // From Perbaikan too: a visit can stall (no material, customer away) after it was handed out.
+                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG, TicketStatus::PERBAIKAN],
+                        'Tiket hanya bisa masuk Antrian Teknisi dari tahap Helpdesk Cek, Cek Ulang, atau Perbaikan');
+                    $fromRepair = $ticket->status === TicketStatus::PERBAIKAN;
                     if (! $notes) {
-                        throw ValidationException::withMessages(['notes' => 'Tuliskan kendala yang perlu dicek teknisi di lokasi']);
+                        throw ValidationException::withMessages(['notes' => $fromRepair
+                            ? 'Tuliskan alasan tiket dikembalikan ke Antrian Teknisi'
+                            : 'Tuliskan kendala yang perlu dicek teknisi di lokasi']);
                     }
                     $ticket->modem = $modem ?? $ticket->modem;
                     $ticket->status = TicketStatus::ANTRIAN_TEKNISI;
-                    $description = "Helpdesk ({$actor->name}): perlu kunjungan teknisi, menunggu teknisi tersedia. Kendala: {$notes}";
+
+                    if ($fromRepair) {
+                        $previousCrew = $ticket->technicianNames() ?: '-';
+                        // The queue means no one is on it yet; whoever is assigned next starts the visit afresh.
+                        $ticket->technicians()->sync([]);
+                        $ticket->setRelation('technicians', new EloquentCollection);
+                        $ticket->repair_started_at = null;
+                        $ticket->technician_notes = null;
+                        $description = "Helpdesk ({$actor->name}) mengembalikan tiket ke Antrian Teknisi dari teknisi [{$previousCrew}]. Alasan: {$notes}";
+                    } else {
+                        $description = "Helpdesk ({$actor->name}): perlu kunjungan teknisi, menunggu teknisi tersedia. Kendala: {$notes}";
+                    }
                     break;
 
                 case TicketAction::PERLU_TEKNISI:
@@ -308,7 +324,7 @@ class TicketWorkflowService
                 'action' => $action,
                 'from_status' => $previous,
                 'to_status' => $ticket->status,
-                'notes' => in_array($action, self::KEEPS_FULL_DESCRIPTION, true) ? $description : ($notes ?? $description),
+                'notes' => $this->keepsFullDescription($action, $previous) ? $description : ($notes ?? $description),
                 'urgency_level' => $action === TicketAction::CATATAN_URGENSI_CS ? ($data['urgency_level'] ?? 'MENDESAK') : null,
             ]);
 
@@ -324,9 +340,18 @@ class TicketWorkflowService
             return $ticket;
         }
 
-        $this->notify($ticket, $action, $previous, in_array($action, self::KEEPS_FULL_DESCRIPTION, true) ? $description : ($notes ?? $description), $actor, $data);
+        $this->notify($ticket, $action, $previous, $this->keepsFullDescription($action, $previous) ? $description : ($notes ?? $description), $actor, $data);
 
         return $ticket;
+    }
+
+    /**
+     * Sending a ticket back from Perbaikan removes the crew, so the record keeps who it was taken from.
+     */
+    private function keepsFullDescription(TicketAction $action, TicketStatus $previous): bool
+    {
+        return in_array($action, self::KEEPS_FULL_DESCRIPTION, true)
+            || ($action === TicketAction::ANTRI_TEKNISI && $previous === TicketStatus::PERBAIKAN);
     }
 
     /**

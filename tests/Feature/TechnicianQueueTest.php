@@ -99,6 +99,32 @@ class TechnicianQueueTest extends TestCase
         $this->assertSame(TicketStatus::MENUNGGU_KONFIRMASI, $ticket->fresh()->status);
     }
 
+    public function test_a_stalled_repair_goes_back_to_the_queue_and_is_handed_out_again(): void
+    {
+        $ticket = $this->checkedTicket();
+        $this->act($this->helpdesk, $ticket, 'PERLU_TEKNISI', ['technician_ids' => [$this->technician->id]])->assertSessionHasNoErrors();
+        $this->act($this->technician, $ticket, 'MULAI_PERBAIKAN')->assertSessionHasNoErrors();
+        $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertSee('Pending Kunjungan');
+
+        $this->act($this->technician, $ticket, 'ANTRI_TEKNISI', ['notes' => 'x'])->assertForbidden();
+        $this->act($this->helpdesk, $ticket, 'ANTRI_TEKNISI')->assertSessionHasErrors(['notes' => 'Tuliskan alasan tiket dikembalikan ke Antrian Teknisi']);
+        $this->act($this->helpdesk, $ticket, 'ANTRI_TEKNISI', ['notes' => 'Material kabel belum ada'])->assertSessionHasNoErrors();
+
+        $ticket->refresh();
+        $this->assertSame(TicketStatus::ANTRIAN_TEKNISI, $ticket->status);
+        $this->assertCount(0, $ticket->technicians);
+        $this->assertNull($ticket->repair_started_at);
+        $history = $ticket->histories->last()->notes;
+        $this->assertStringContainsString('Material kabel belum ada', $history);
+        $this->assertStringContainsString($this->technician->name, $history);
+        $this->actingAs($this->technician)->get("/tickets/{$ticket->ticket_number}")->assertForbidden();
+
+        // Handed out again later, the visit starts from scratch.
+        $this->act($this->helpdesk, $ticket, 'PERLU_TEKNISI', ['technician_ids' => [$this->technician->id]])->assertSessionHasNoErrors();
+        $this->act($this->technician, $ticket, 'LAPOR_PERBAIKAN_SELESAI', ['notes' => 'Selesai'])->assertSessionHasErrors('action');
+        $this->act($this->technician, $ticket, 'MULAI_PERBAIKAN')->assertSessionHasNoErrors();
+    }
+
     public function test_only_a_checked_ticket_can_be_queued(): void
     {
         $waiting = Ticket::factory()->create();
