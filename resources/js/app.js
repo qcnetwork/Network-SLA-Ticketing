@@ -16,3 +16,7 @@ Alpine.start();
 const renderIcons = () => createIcons({ icons });
 document.addEventListener('DOMContentLoaded', renderIcons);
 window.renderIcons = renderIcons;
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
+}

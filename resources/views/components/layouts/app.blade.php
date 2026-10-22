@@ -25,6 +25,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ? $title.' · ' : '' }}NetTicket</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    @include('partials.pwa-head')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="min-h-screen bg-slate-100 font-sans text-slate-800 antialiased">
