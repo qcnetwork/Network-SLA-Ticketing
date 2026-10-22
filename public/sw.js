@@ -1,6 +1,6 @@
 // Service worker for the installable app. Pages hold live ticket data behind a
 // login, so they are never cached: only Vite's hashed build files and icons are.
-const CACHE = 'netticket-v2';
+const CACHE = 'netticket-v3';
 const OFFLINE_URL = '/offline.html';
 
 self.addEventListener('install', (event) => {

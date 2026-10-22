@@ -1,7 +1,7 @@
 {
     "id": "/",
-    "name": "NetTicket",
-    "short_name": "NetTicket",
+    "name": "QCNet Ticketing",
+    "short_name": "QCNet Ticketing",
     "description": "Sistem Ticketing CS · Helpdesk · Teknisi",
     "lang": "id",
     "start_url": "/dashboard",

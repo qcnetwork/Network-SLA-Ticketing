@@ -23,7 +23,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $title ? $title.' · ' : '' }}NetTicket</title>
+    <title>{{ $title ? $title.' · ' : '' }}QCNet Ticketing</title>
     <link rel="icon" href="/icons/logo-mark.png" type="image/png">
     @include('partials.pwa-head')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -33,7 +33,7 @@
         <div class="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
             <a href="{{ route('dashboard') }}" class="flex items-center gap-2 font-bold text-indigo-700">
                 <img src="/icons/logo-mark.png" alt="" class="h-9 w-9 rounded-lg">
-                <span class="text-lg">NetTicket</span>
+                <span class="text-lg">QCNet Ticketing</span>
             </a>
 
             <nav class="hidden items-center gap-1 lg:flex">

@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Masuk · NetTicket</title>
+    <title>Masuk · QCNet Ticketing</title>
     <link rel="icon" href="/icons/logo-mark.png" type="image/png">
     @include('partials.pwa-head')
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -12,7 +12,7 @@
     <div class="w-full max-w-md">
         <div class="mb-6 text-center text-white">
             <img src="/icons/ticketing.jpg" alt="QCNet Ticketing" class="mx-auto mb-3 h-28 w-28 rounded-2xl shadow-lg">
-            <h1 class="text-2xl font-bold">NetTicket</h1>
+            <h1 class="text-2xl font-bold">QCNet Ticketing</h1>
             <p class="text-sm text-indigo-100">Sistem Ticketing CS · Helpdesk · Teknisi</p>
         </div>
 
