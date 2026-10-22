@@ -6,6 +6,7 @@ use App\Enums\Role;
 use App\Models\Ticket;
 use App\Services\DatabaseBackup;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use PDO;
 use Tests\TestCase;
@@ -48,6 +49,19 @@ class DatabaseBackupTest extends TestCase
         $this->assertStringStartsWith('SQLite format 3', file_get_contents($path, length: 16));
         $this->assertSame(3, $this->ticketsIn($path));
         $this->assertMatchesRegularExpression('/netticket-backup-\d{8}-\d{6}\.sqlite$/', $path);
+    }
+
+    public function test_snapshot_leaves_out_live_sessions_and_cache(): void
+    {
+        DB::table('sessions')->insert(['id' => 'live-session', 'payload' => 'secret', 'last_activity' => time()]);
+        DB::table('cache')->insert(['key' => 'k', 'value' => 'v', 'expiration' => time() + 60]);
+
+        $path = app(DatabaseBackup::class)->create($this->directory);
+        $snapshot = new PDO('sqlite:'.$path);
+
+        $this->assertSame(0, (int) $snapshot->query('select count(*) from sessions')->fetchColumn());
+        $this->assertSame(0, (int) $snapshot->query('select count(*) from cache')->fetchColumn());
+        $this->assertStringNotContainsString('live-session', file_get_contents($path));
     }
 
     public function test_prune_keeps_only_the_newest_backups(): void

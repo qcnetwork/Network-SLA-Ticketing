@@ -21,7 +21,7 @@
             </div>
             <div>
                 <label class="label" for="password">Password Baru</label>
-                <input id="password" name="password" type="password" class="input" required minlength="6" autocomplete="new-password">
+                <input id="password" name="password" type="password" class="input" required minlength="8" autocomplete="new-password">
                 <x-field-error name="password" />
             </div>
             <div>

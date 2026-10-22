@@ -31,8 +31,16 @@
 
             <div>
                 <label class="label" for="bot_token">Bot Token</label>
-                <input id="bot_token" name="bot_token" type="password" value="{{ old('bot_token', $settings['bot_token']) }}" class="input font-mono" autocomplete="off" placeholder="123456789:ABCdef...">
+                {{-- The stored token is never sent back to the browser; a blank field keeps it. --}}
+                <input id="bot_token" name="bot_token" type="password" class="input font-mono" autocomplete="off"
+                       placeholder="{{ filled($settings['bot_token']) ? '•••••••• tersimpan · isi untuk mengganti' : '123456789:ABCdef...' }}">
                 <x-field-error name="bot_token" />
+                @if (filled($settings['bot_token']))
+                    <label class="mt-2 flex items-center gap-2 text-sm text-slate-600">
+                        <input type="checkbox" name="clear_bot_token" value="1" class="rounded border-slate-300">
+                        Hapus token (kembali ke mode simulator)
+                    </label>
+                @endif
             </div>
             <div>
                 <label class="label" for="chat_id">Group Chat ID</label>

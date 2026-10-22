@@ -15,7 +15,8 @@
             Total lampiran yang dikirim melebihi batas server ({{ ini_get('post_max_size') }}).
             Kirim lebih sedikit atau lebih kecil, atau minta admin menaikkan <code>post_max_size</code> di php.ini.
         </p>
-        <button type="button" onclick="history.back()" class="btn btn-primary w-full">Kembali</button>
+        {{-- A link rather than an onclick handler, which the Content-Security-Policy blocks. --}}
+        <a href="{{ url()->previous() }}" class="btn btn-primary w-full">Kembali</a>
     </div>
 </body>
 </html>

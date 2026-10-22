@@ -7,12 +7,15 @@ use App\Exports\MonthlyReportExport;
 use App\Models\Setting;
 use App\Models\TelegramLog;
 use App\Models\Ticket;
+use App\Models\TicketAttachment;
 use App\Models\User;
 use App\Services\MonthlyReportService;
 use App\Services\TelegramService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Maatwebsite\Excel\Facades\Excel;
 use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -61,6 +64,71 @@ class SecurityHardeningTest extends TestCase
 
         $this->actingAs($primary)->put("/users/{$primary->id}", $update)->assertSessionHasNoErrors();
         $this->assertTrue(password_verify('takeover123', $primary->fresh()->password));
+    }
+
+    public function test_every_page_sends_browser_security_headers(): void
+    {
+        $response = $this->get('/login')->assertOk();
+
+        $response->assertHeader('X-Content-Type-Options', 'nosniff');
+        $response->assertHeader('X-Frame-Options', 'DENY');
+        $this->assertStringContainsString("frame-ancestors 'none'", $response->headers->get('Content-Security-Policy'));
+        $this->assertStringContainsString("object-src 'none'", $response->headers->get('Content-Security-Policy'));
+    }
+
+    public function test_attachments_are_sandboxed_and_odd_names_still_open(): void
+    {
+        Storage::fake(TicketAttachment::DISK);
+        $helpdesk = $this->userWithRole(Role::HELPDESK);
+        $ticket = Ticket::factory()->create();
+
+        $this->actingAs($helpdesk)->post("/tickets/{$ticket->ticket_number}/actions/CATATAN_DOKUMENTASI", [
+            'notes' => 'Foto ODP',
+            'photos' => [UploadedFile::fake()->image("foto\tODP ✓.jpg")],
+        ])->assertSessionHasNoErrors();
+        $attachment = $ticket->attachments()->sole();
+
+        $response = $this->get(route('tickets.attachment', [$ticket, $attachment]))->assertOk();
+        $this->assertStringStartsWith('sandbox', $response->headers->get('Content-Security-Policy'));
+    }
+
+    public function test_telegram_feed_drops_attributes_from_formatting_tags(): void
+    {
+        TelegramLog::query()->create(['message' => '<b onmouseover="alert(1)">Tebal</b> <script>alert(2)</script>', 'simulated' => true]);
+
+        $this->actingAs($this->userWithRole(Role::HELPDESK))->get('/telegram-logs')
+            ->assertOk()
+            ->assertSee('<b>Tebal</b>', false)
+            ->assertDontSee('onmouseover', false)
+            ->assertDontSee('<script>alert(2)', false);
+    }
+
+    public function test_settings_never_send_the_bot_token_back_and_a_blank_field_keeps_it(): void
+    {
+        Setting::write(['bot_token' => '123456:SECRET-token']);
+        $supervisor = $this->userWithRole(Role::SPV);
+
+        $this->actingAs($supervisor)->get('/settings')->assertOk()->assertDontSee('SECRET-token');
+
+        $this->put('/settings', ['bot_token' => '', 'chat_id' => '-100123'])->assertSessionHasNoErrors();
+        $this->assertSame('123456:SECRET-token', Setting::read('bot_token'));
+
+        $this->put('/settings', ['bot_token' => '', 'chat_id' => '-100123', 'clear_bot_token' => '1'])->assertSessionHasNoErrors();
+        $this->assertSame('', (string) Setting::read('bot_token'));
+    }
+
+    public function test_weak_passwords_and_the_primary_username_are_refused(): void
+    {
+        $supervisor = $this->userWithRole(Role::SPV);
+        $account = ['name' => 'Teknisi Baru', 'role' => 'TEKNISI'];
+
+        $this->actingAs($supervisor)->post('/users', $account + ['username' => 'baru', 'password' => '123456'])
+            ->assertSessionHasErrors('password');
+        $this->post('/users', $account + ['username' => 'baru', 'password' => 'abcdefgh'])->assertSessionHasErrors('password');
+        $this->post('/users', $account + ['username' => User::PRIMARY_SUPERVISOR, 'password' => 'qcnet2026'])
+            ->assertSessionHasErrors('username');
+
+        $this->post('/users', $account + ['username' => 'baru', 'password' => 'qcnet2026'])->assertSessionHasNoErrors();
     }
 
     public function test_password_change_signs_out_other_sessions_but_keeps_the_current_one(): void

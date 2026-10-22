@@ -35,6 +35,7 @@ class SettingController extends Controller
             'cs_phone' => ['nullable', 'string', 'max:30'],
             'notify_on_new_ticket' => ['nullable', 'boolean'],
             'notify_on_status_change' => ['nullable', 'boolean'],
+            'clear_bot_token' => ['nullable', 'boolean'],
         ], [
             'bot_token.regex' => 'Format Bot Token tidak valid (contoh: 123456:ABC-xyz)',
             'chat_id.regex' => 'Chat ID harus berupa angka (contoh: -1001234567890) atau @namachannel',
@@ -46,8 +47,15 @@ class SettingController extends Controller
         // A list message in the old chat or topic cannot be edited from the new one.
         $listMoved = $listTarget !== [(string) Setting::read('chat_id'), (string) Setting::read('list_topic_id')];
 
+        // The form never shows the stored token, so a blank field means "keep it".
+        $botToken = match (true) {
+            $request->boolean('clear_bot_token') => '',
+            filled($data['bot_token'] ?? null) => $data['bot_token'],
+            default => (string) Setting::read('bot_token'),
+        };
+
         Setting::write([
-            'bot_token' => $data['bot_token'] ?? '',
+            'bot_token' => $botToken,
             'chat_id' => $listTarget[0],
             'log_topic_id' => (string) ($data['log_topic_id'] ?? ''),
             'list_topic_id' => $listTarget[1],

@@ -122,7 +122,8 @@ class TicketWorkflowService
             $previous = $ticket->status;
             $now = now();
 
-            if ($actor->role === Role::TEKNISI && ! $ticket->isAssignedTo($actor)) {
+            // Re-checked on the locked row: the ticket may have left PERBAIKAN since the policy check.
+            if ($actor->role === Role::TEKNISI && ($ticket->status !== TicketStatus::PERBAIKAN || ! $ticket->isAssignedTo($actor))) {
                 throw new AuthorizationException('Tiket ini tidak ditugaskan kepada Anda');
             }
 

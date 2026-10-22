@@ -210,6 +210,30 @@ class IncidentWorkflowTest extends TestCase
         $this->actingAs($this->technician)->get("/gamas/{$incident->incident_number}/attachments/{$attachment->id}")->assertForbidden();
     }
 
+    public function test_technician_loses_access_once_the_gamas_is_closed(): void
+    {
+        $incident = $this->createIncident();
+        $this->act($this->helpdesk, $incident, 'TUGASKAN_TEKNISI', ['technician_ids' => [$this->technician->id]])->assertSessionHasNoErrors();
+        $this->actingAs($this->technician)->get("/gamas/{$incident->incident_number}")->assertOk();
+
+        $incident->update(['status' => IncidentStatus::SELESAI]);
+
+        $this->get("/gamas/{$incident->incident_number}")->assertForbidden();
+        $this->get('/gamas')->assertOk()->assertDontSee($incident->incident_number);
+    }
+
+    public function test_a_gamas_attachment_cannot_be_read_through_another_gamas(): void
+    {
+        Storage::fake(TicketAttachment::DISK);
+        $first = $this->createIncident();
+        $this->act($this->helpdesk, $first, 'UPDATE_PROGRES', ['notes' => 'Foto', 'photos' => [UploadedFile::fake()->image('kabel.jpg')]])
+            ->assertSessionHasNoErrors();
+        $attachment = $first->attachments()->sole();
+        $second = $this->createIncident();
+
+        $this->actingAs($this->cs)->get("/gamas/{$second->incident_number}/attachments/{$attachment->id}")->assertNotFound();
+    }
+
     public function test_gamas_pages_render(): void
     {
         $ticket = Ticket::factory()->create(['customer_name' => 'Pelanggan Gamas']);

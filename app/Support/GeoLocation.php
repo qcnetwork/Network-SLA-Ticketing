@@ -84,13 +84,21 @@ class GeoLocation
      */
     private static function resolve(string $url): ?array
     {
+        // Saving a ticket waits on this, so a slow or looping link gets one short budget overall.
+        $deadline = microtime(true) + 8;
+
         for ($hop = 0; $hop < self::MAX_REDIRECTS; $hop++) {
             if (! in_array(strtolower((string) parse_url($url, PHP_URL_HOST)), self::SHORT_LINK_HOSTS, true)) {
                 return null;
             }
+            $remaining = $deadline - microtime(true);
+            if ($remaining < 1) {
+                return null;
+            }
+            $url = preg_replace('~^http://~i', 'https://', $url);
 
             try {
-                $response = Http::timeout(5)->withOptions(['allow_redirects' => false])->get($url);
+                $response = Http::connectTimeout(3)->timeout(min(5, (int) $remaining))->withOptions(['allow_redirects' => false])->get($url);
             } catch (Throwable) {
                 return null;
             }

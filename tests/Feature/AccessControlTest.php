@@ -44,7 +44,7 @@ class AccessControlTest extends TestCase
         $this->actingAs($primary);
 
         $this->post('/users', [
-            'username' => ' Andi ', 'name' => 'Andi', 'role' => 'CS', 'password' => 'andi123',
+            'username' => ' Andi ', 'name' => 'Andi', 'role' => 'CS', 'password' => 'andi1234',
         ])->assertRedirect('/users');
         $andi = User::query()->where('username', 'andi')->firstOrFail();
         $this->assertSame(Role::CS, $andi->role);
