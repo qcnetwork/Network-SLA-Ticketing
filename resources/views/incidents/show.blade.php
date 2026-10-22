@@ -136,18 +136,7 @@
                                 <p class="mt-1 text-sm whitespace-pre-line wrap-break-word text-slate-600">{{ $update->notes }}</p>
                             @endif
                             @if ($update->attachments->isNotEmpty())
-                                <div class="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                                    @foreach ($update->attachments as $attachment)
-                                        @php($photoUrl = route('incidents.attachment', [$incident, $attachment]))
-                                        @if ($attachment->isVideo())
-                                            <video src="{{ $photoUrl }}" controls preload="metadata" playsinline title="{{ $attachment->original_name }}" class="aspect-square w-full rounded-lg border border-slate-200 bg-slate-900 object-cover"></video>
-                                        @else
-                                            <a href="{{ $photoUrl }}" target="_blank" rel="noopener" title="{{ $attachment->original_name }}">
-                                                <img src="{{ $photoUrl }}" alt="{{ $attachment->original_name }}" loading="lazy" class="aspect-square w-full rounded-lg border border-slate-200 object-cover hover:opacity-90">
-                                            </a>
-                                        @endif
-                                    @endforeach
-                                </div>
+                                <x-attachment-grid :attachments="$update->attachments" route="incidents.attachment" :parent="$incident" />
                             @endif
                         </li>
                     @endforeach

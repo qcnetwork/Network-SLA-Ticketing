@@ -98,5 +98,7 @@
         <x-flash />
         {{ $slot }}
     </main>
+
+    <x-media-viewer />
 </body>
 </html>
