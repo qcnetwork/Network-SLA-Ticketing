@@ -22,9 +22,19 @@
         $actionUrl = fn (A $action) => route('tickets.perform', [$ticket, $action->value]);
     @endphp
 
-    <a href="{{ route('dashboard') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
-        <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke dashboard
-    </a>
+    @if ($myShare)
+        <a href="{{ route('archive.index') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
+            <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke arsip
+        </a>
+        <p class="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <i data-lucide="archive" class="mt-0.5 h-4 w-4 shrink-0"></i>
+            <span>Arsip dibagikan oleh {{ $myShare->sharedBy?->name ?? 'Helpdesk' }}. Hanya bisa dilihat, sampai {{ $myShare->expires_at->format('d/m/Y H:i') }}.</span>
+        </p>
+    @else
+        <a href="{{ route('dashboard') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
+            <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke dashboard
+        </a>
+    @endif
 
     <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -44,7 +54,7 @@
                 @endforeach
             @endcan
             @can('delete', $ticket)
-                <form method="POST" action="{{ route('tickets.destroy', $ticket) }}" onsubmit="return confirm({{ Js::from('Hapus tiket '.$ticket->ticket_number.'? Riwayat dan foto/video dokumentasi ikut terhapus permanen.') }})">
+                <form method="POST" action="{{ route('tickets.destroy', $ticket) }}" data-confirm="{{ 'Hapus tiket '.$ticket->ticket_number.'? Riwayat dan foto/video dokumentasi ikut terhapus permanen.' }}">
                     @csrf
                     @method('DELETE')
                     <button class="btn-danger text-xs"><i data-lucide="trash-2" class="h-4 w-4"></i>Hapus Tiket</button>
@@ -242,7 +252,7 @@
                         <p class="text-xs text-slate-500">Estimasi selesai {{ $ticket->incident->estimated_resolved_at->format('d/m/Y H:i') }}</p>
                     @endif
                     @if ($status === S::GAMAS && $ticket->incident->isOpen() && auth()->user()->can('perform', [$ticket->incident, App\Enums\IncidentAction::TIKET_DILEPAS]))
-                        <form method="POST" action="{{ route('incidents.tickets.detach', [$ticket->incident, $ticket]) }}" onsubmit="return confirm('Lepas tiket ini dari gamas? Tiket akan kembali ke Antrian Helpdesk.')">
+                        <form method="POST" action="{{ route('incidents.tickets.detach', [$ticket->incident, $ticket]) }}" data-confirm="Lepas tiket ini dari gamas? Tiket akan kembali ke Antrian Helpdesk.">
                             @csrf
                             @method('DELETE')
                             <button class="btn-secondary w-full text-xs"><i data-lucide="unlink" class="h-4 w-4"></i>Bukan karena gamas, lepas tiket</button>
@@ -262,7 +272,7 @@
 
             @if ($canCsClose)
                 <form method="POST" action="{{ $actionUrl(A::SELESAI_EDUKASI_CS) }}" class="card space-y-3 p-5"
-                    onsubmit="return confirm('Tutup tiket ini? Pastikan pelanggan sudah konfirmasi koneksi normal.')">
+                    data-confirm="Tutup tiket ini? Pastikan pelanggan sudah konfirmasi koneksi normal.">
                     @csrf
                     <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="plug-zap" class="h-4 w-4 text-emerald-600"></i>Selesai dengan Edukasi</h3>
                     <p class="text-sm text-slate-500">Kendala sudah beres setelah pelanggan diarahkan (cabut-tancap adaptor, restart modem, dll)? Tutup tiket tanpa perlu ke Helpdesk.</p>
@@ -542,6 +552,66 @@
                     @endif
                 </div>
             @endif
+
+            @can('share', $ticket)
+                {{-- Read-only access to this one ticket for a technician who is not its crew, e.g. to look up a past visit. --}}
+                <div class="card space-y-3 p-5" x-data="{ open: @js($errors->has('user_id')), copied: false }">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="share-2" class="h-4 w-4 text-indigo-600"></i>Bagikan ke Teknisi</h3>
+                            <p class="mt-1 text-sm text-slate-500">Akses lihat saja ke tiket ini, berakhir otomatis.</p>
+                        </div>
+                        <button type="button" x-show="! open" @click="open = true" class="btn-secondary shrink-0 px-3 py-1.5 text-xs"><i data-lucide="share-2" class="h-3.5 w-3.5"></i>Bagikan</button>
+                    </div>
+
+                    @if ($shares->isNotEmpty())
+                        <ul class="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
+                            @foreach ($shares as $share)
+                                <li class="flex items-center justify-between gap-2 px-3 py-2">
+                                    <div class="min-w-0">
+                                        <div class="truncate font-medium text-slate-800">{{ $share->user?->name }}</div>
+                                        <div class="text-xs text-slate-500">Sampai {{ $share->expires_at->format('d/m/Y H:i') }} · oleh {{ $share->sharedBy?->name ?? '-' }}</div>
+                                    </div>
+                                    <form method="POST" action="{{ route('tickets.shares.destroy', [$ticket, $share]) }}" data-confirm="{{ 'Cabut akses '.$share->user?->name.' ke tiket ini?' }}">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button class="text-xs font-semibold text-rose-600 hover:underline">Cabut</button>
+                                    </form>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+
+                    <form method="POST" action="{{ route('tickets.shares.store', $ticket) }}" x-show="open" x-cloak class="space-y-3 border-t border-slate-100 pt-3">
+                        @csrf
+                        <div>
+                            <label class="label" for="share_user">Teknisi</label>
+                            <select id="share_user" name="user_id" class="input" required>
+                                <option value="">Pilih teknisi</option>
+                                @foreach ($technicians as $technician)
+                                    <option value="{{ $technician->id }}" @selected(old('user_id') == $technician->id)>{{ $technician->name }}</option>
+                                @endforeach
+                            </select>
+                            <x-field-error name="user_id" />
+                        </div>
+                        <div>
+                            <label class="label" for="share_days">Lama akses</label>
+                            <select id="share_days" name="days" class="input">
+                                @foreach ($shareDurations as $days)
+                                    <option value="{{ $days }}" @selected($days === 1)>{{ $days }} hari</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <p class="text-xs text-slate-500">Teknisi mendapat notifikasi berisi link. Link tetap butuh login, jadi aman dikirim lewat WhatsApp/Telegram.</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" @click="navigator.clipboard?.writeText(@js(route('tickets.show', $ticket))).then(() => copied = true)" class="btn-secondary">
+                                <i data-lucide="link" class="h-4 w-4"></i><span x-text="copied ? 'Tersalin' : 'Salin Link'"></span>
+                            </button>
+                            <button class="btn-primary"><i data-lucide="share-2" class="h-4 w-4"></i>Bagikan</button>
+                        </div>
+                    </form>
+                </div>
+            @endcan
         </aside>
     </div>
 </x-layouts.app>

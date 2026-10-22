@@ -108,6 +108,24 @@ class Ticket extends Model
         return $this->hasMany(TicketAttachment::class)->orderBy('id');
     }
 
+    public function shares(): HasMany
+    {
+        return $this->hasMany(TicketShare::class);
+    }
+
+    public function isSharedWith(User $user): bool
+    {
+        return $this->shares()->active()->where('user_id', $user->id)->exists();
+    }
+
+    /**
+     * Tickets currently shared with the user through the archive.
+     */
+    public function scopeSharedWith(Builder $query, User $user): Builder
+    {
+        return $query->whereHas('shares', fn (Builder $share) => $share->active()->where('user_id', $user->id));
+    }
+
     /**
      * Limit the query to tickets the given user may see.
      * Technicians only see repair tickets assigned to them.

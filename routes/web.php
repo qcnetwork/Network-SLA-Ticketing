@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\IncidentController;
@@ -10,6 +11,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\TicketCategoryController;
 use App\Http\Controllers\TicketController;
+use App\Http\Controllers\TicketShareController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -41,6 +43,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/tickets/{ticket}/attachments/{attachment}', [TicketController::class, 'attachment'])
         ->scopeBindings()->name('tickets.attachment');
     Route::get('/tickets/{ticket}/whatsapp', [TicketController::class, 'whatsapp'])->name('tickets.whatsapp');
+    Route::post('/tickets/{ticket}/shares', [TicketShareController::class, 'store'])->name('tickets.shares.store');
+    Route::delete('/tickets/{ticket}/shares/{share}', [TicketShareController::class, 'destroy'])
+        ->scopeBindings()->name('tickets.shares.destroy');
+
+    Route::get('/arsip', [ArchiveController::class, 'index'])->middleware('role:HELPDESK,SPV,TEKNISI')->name('archive.index');
 
     Route::get('/gamas', [IncidentController::class, 'index'])->name('incidents.index');
     Route::get('/gamas/create', [IncidentController::class, 'create'])->name('incidents.create');

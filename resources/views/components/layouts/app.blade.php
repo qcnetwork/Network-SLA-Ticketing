@@ -7,6 +7,8 @@
         ['route' => 'incidents.index', 'label' => 'Gamas', 'icon' => 'radio-tower', 'active' => 'incidents.*'],
         $user->can('create', App\Models\Ticket::class)
             ? ['route' => 'tickets.create', 'label' => 'Tiket Baru', 'icon' => 'plus-circle', 'active' => 'tickets.create'] : null,
+        $user->hasRole(Role::HELPDESK, Role::SPV, Role::TEKNISI)
+            ? ['route' => 'archive.index', 'label' => 'Arsip', 'icon' => 'archive', 'active' => 'archive.*'] : null,
         $user->hasRole(Role::HELPDESK, Role::SPV, Role::CS)
             ? ['route' => 'reports.index', 'label' => 'Laporan', 'icon' => 'bar-chart-3', 'active' => 'reports.*'] : null,
         $user->hasRole(Role::HELPDESK, Role::SPV)

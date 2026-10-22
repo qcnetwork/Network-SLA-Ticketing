@@ -31,7 +31,7 @@
                         <a href="{{ route('users.edit', $user) }}" class="btn-secondary flex-1 py-1.5 text-xs"><i data-lucide="pencil" class="h-3.5 w-3.5"></i>Ubah</a>
                     @endunless
                     @unless ($user->isPrimarySupervisor() || $user->is(auth()->user()))
-                        <form method="POST" action="{{ route('users.destroy', $user) }}" class="flex-1" onsubmit="return confirm({{ Js::from('Hapus pengguna '.$user->name.'?') }})">
+                        <form method="POST" action="{{ route('users.destroy', $user) }}" class="flex-1" data-confirm="{{ 'Hapus pengguna '.$user->name.'?' }}">
                             @csrf
                             @method('DELETE')
                             <button class="btn-danger w-full py-1.5 text-xs"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Hapus</button>
@@ -77,7 +77,7 @@
                                     <a href="{{ route('users.edit', $user) }}" class="btn-secondary px-3 py-1.5 text-xs"><i data-lucide="pencil" class="h-3.5 w-3.5"></i>Ubah</a>
                                 @endunless
                                 @unless ($user->isPrimarySupervisor() || $user->is(auth()->user()))
-                                    <form method="POST" action="{{ route('users.destroy', $user) }}" onsubmit="return confirm({{ Js::from('Hapus pengguna '.$user->name.'?') }})">
+                                    <form method="POST" action="{{ route('users.destroy', $user) }}" data-confirm="{{ 'Hapus pengguna '.$user->name.'?' }}">
                                         @csrf
                                         @method('DELETE')
                                         <button class="btn-danger px-3 py-1.5 text-xs"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Hapus</button>

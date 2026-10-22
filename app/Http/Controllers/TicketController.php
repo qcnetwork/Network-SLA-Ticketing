@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\IncidentAction;
 use App\Enums\IncidentStatus;
+use App\Enums\Role;
 use App\Enums\TicketAction;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
@@ -12,6 +13,7 @@ use App\Models\ModemType;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
 use App\Models\TicketCategory;
+use App\Models\TicketShare;
 use App\Models\User;
 use App\Services\DocumentationPhotoStore;
 use App\Services\IncidentWorkflowService;
@@ -74,8 +76,16 @@ class TicketController extends Controller
         $this->authorize('view', $ticket);
 
         $ticket->load(['creator', 'helpdesk', 'technicians', 'incident', 'histories.user', 'histories.attachments']);
+        $user = request()->user();
+        $isCrew = $ticket->status === TicketStatus::PERBAIKAN && $ticket->isAssignedTo($user);
 
         return view('tickets.show', [
+            'shares' => $user->can('share', $ticket)
+                ? $ticket->shares()->active()->with(['user', 'sharedBy'])->orderBy('expires_at')->get() : collect(),
+            // Set when a technician opened the ticket through the archive rather than as its crew.
+            'myShare' => $user->role === Role::TEKNISI && ! $isCrew
+                ? $ticket->shares()->active()->where('user_id', $user->id)->first() : null,
+            'shareDurations' => TicketShare::DURATIONS,
             'ticket' => $ticket,
             'technicians' => User::technicians()->get(),
             'flow' => [

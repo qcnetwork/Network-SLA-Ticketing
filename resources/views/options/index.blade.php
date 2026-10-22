@@ -34,7 +34,7 @@
                         <div class="flex gap-2">
                             <button type="button" @click="editing = true" class="btn-secondary px-3 py-1.5 text-xs"><i data-lucide="pencil" class="h-3.5 w-3.5"></i>Ubah</button>
                             @if ($used === 0)
-                                <form method="POST" action="{{ route($page['route'].'.destroy', $option->id) }}" onsubmit="return confirm({{ Js::from('Hapus '.$page['noun'].' '.$option->name.'?') }})">
+                                <form method="POST" action="{{ route($page['route'].'.destroy', $option->id) }}" data-confirm="{{ 'Hapus '.$page['noun'].' '.$option->name.'?' }}">
                                     @csrf
                                     @method('DELETE')
                                     <button class="btn-danger px-3 py-1.5 text-xs"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Hapus</button>

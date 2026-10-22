@@ -106,7 +106,7 @@
                                     @if ($canDetach)
                                         <td class="py-2 text-right">
                                             @if ($ticket->status === S::GAMAS)
-                                                <form method="POST" action="{{ route('incidents.tickets.detach', [$incident, $ticket]) }}" onsubmit="return confirm('Lepas tiket {{ $ticket->ticket_number }} dari gamas? Tiket akan kembali ke Antrian Helpdesk.')">
+                                                <form method="POST" action="{{ route('incidents.tickets.detach', [$incident, $ticket]) }}" data-confirm="Lepas tiket {{ $ticket->ticket_number }} dari gamas? Tiket akan kembali ke Antrian Helpdesk.">
                                                     @csrf
                                                     @method('DELETE')
                                                     <button class="text-xs font-semibold text-rose-600 hover:underline">Lepas</button>
@@ -181,7 +181,7 @@
 
             @if ($canResolve)
                 <form method="POST" action="{{ $actionUrl(IA::GAMAS_SELESAI) }}" enctype="multipart/form-data" class="card space-y-3 p-5"
-                    onsubmit="return confirm('Selesaikan gamas? {{ $waiting }} tiket pelanggan akan pindah ke Menunggu Konfirmasi.')">
+                    data-confirm="Selesaikan gamas? {{ $waiting }} tiket pelanggan akan pindah ke Menunggu Konfirmasi.">
                     @csrf
                     <h3 class="font-semibold">Gamas Selesai</h3>
                     <p class="text-sm text-slate-500">{{ $waiting }} tiket pelanggan akan pindah ke <b>Menunggu Konfirmasi</b> untuk dicek CS satu per satu.</p>

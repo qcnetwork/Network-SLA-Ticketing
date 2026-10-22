@@ -17,3 +17,6 @@ Schedule::command('db:backup')->dailyAt('23:30')->withoutOverlapping();
 // The bell only shows the latest few; read notices older than a month are just weight.
 Schedule::call(fn () => DB::table('notifications')->whereNotNull('read_at')->where('created_at', '<', now()->subDays(30))->delete())
     ->daily()->name('prune-read-notifications');
+// Expired shares already grant nothing; this only keeps the table small.
+Schedule::call(fn () => DB::table('ticket_shares')->where('expires_at', '<', now())->delete())
+    ->daily()->name('prune-expired-ticket-shares');

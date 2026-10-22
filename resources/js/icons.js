@@ -4,6 +4,7 @@
  */
 import {
     AlertTriangle,
+    Archive,
     ArrowLeft,
     BarChart3,
     Bell,
@@ -48,6 +49,7 @@ import {
     Search,
     Send,
     Settings,
+    Share2,
     Siren,
     Table,
     Tag,
@@ -69,6 +71,7 @@ import {
 
 export default {
     AlertTriangle,
+    Archive,
     ArrowLeft,
     BarChart3,
     Bell,
@@ -113,6 +116,7 @@ export default {
     Search,
     Send,
     Settings,
+    Share2,
     Siren,
     Table,
     Tag,

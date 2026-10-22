@@ -19,6 +19,16 @@ const renderIcons = () => createIcons({ icons });
 document.addEventListener('DOMContentLoaded', renderIcons);
 window.renderIcons = renderIcons;
 
+// <form data-confirm="..."> asks before submitting. An inline onsubmit="return confirm()" would be
+// blocked by the Content-Security-Policy, and the form would then submit without asking.
+document.addEventListener('submit', (event) => {
+    const message = event.target.dataset?.confirm;
+    if (message && !window.confirm(message)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+    }
+}, true);
+
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'));
 }
