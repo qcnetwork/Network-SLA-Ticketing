@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\DatabaseCopier;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -24,14 +25,12 @@ class CopySqliteToMysql extends Command
 {
     use ConfirmableTrait;
 
-    /**
-     * Sign-ins, cache and queued jobs are rebuilt by the app; copying sessions would also carry live logins across.
-     */
-    private const SKIPPED_TABLES = ['migrations', 'sessions', 'cache', 'cache_locks', 'jobs', 'job_batches', 'password_reset_tokens'];
-
     private const IN_USE_TABLES = ['users', 'tickets'];
 
-    private const BATCH_SIZE = 500;
+    public function __construct(private DatabaseCopier $copier)
+    {
+        parent::__construct();
+    }
 
     public function handle(): int
     {
@@ -116,10 +115,7 @@ class CopySqliteToMysql extends Command
             throw new RuntimeException("MySQL belum menjalankan semua migration ({$missing->first()}, dst). Jalankan dulu: php artisan migrate --database={$this->option('target')}");
         }
 
-        $tables = collect($source->select("select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name"))
-            ->pluck('name')
-            ->reject(fn (string $table) => in_array($table, self::SKIPPED_TABLES, true))
-            ->values();
+        $tables = $this->copier->tables($source);
 
         foreach ($tables as $table) {
             if (! $target->getSchemaBuilder()->hasTable($table)) {
@@ -134,7 +130,7 @@ class CopySqliteToMysql extends Command
             }
         }
 
-        return $tables->all();
+        return $tables;
     }
 
     /**
@@ -178,43 +174,10 @@ class CopySqliteToMysql extends Command
      */
     private function copy(Connection $source, Connection $target, array $tables): array
     {
-        // Tables are copied one by one, so a ticket may arrive before the user who made it.
-        $target->statement('SET FOREIGN_KEY_CHECKS=0');
-
         try {
-            return $target->transaction(function () use ($source, $target, $tables) {
-                $counts = [];
-                foreach ($tables as $table) {
-                    $this->components->task($table, function () use ($source, $target, $table) {
-                        // DELETE rather than TRUNCATE, which would commit the transaction.
-                        $target->table($table)->delete();
-                        $batch = [];
-                        foreach ($source->table($table)->orderBy('rowid')->lazy(self::BATCH_SIZE) as $row) {
-                            $batch[] = (array) $row;
-                            if (count($batch) === self::BATCH_SIZE) {
-                                $target->table($table)->insert($batch);
-                                $batch = [];
-                            }
-                        }
-                        if ($batch) {
-                            $target->table($table)->insert($batch);
-                        }
-                    });
-
-                    $expected = $source->table($table)->count();
-                    $copied = $target->table($table)->count();
-                    if ($copied !== $expected) {
-                        throw new RuntimeException("Jumlah baris {$table} tidak sama: SQLite {$expected}, MySQL {$copied}");
-                    }
-                    $counts[$table] = $copied;
-                }
-
-                return $counts;
-            });
+            return $this->copier->copy($source, $target, $tables, fn (string $table, callable $copy) => $this->components->task($table, $copy));
         } catch (\Throwable $e) {
             throw $e instanceof RuntimeException ? $e : new RuntimeException('Gagal menyalin: '.$e->getMessage(), previous: $e);
-        } finally {
-            $target->statement('SET FOREIGN_KEY_CHECKS=1');
         }
     }
 }

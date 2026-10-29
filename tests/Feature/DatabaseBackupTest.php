@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\Role;
 use App\Models\Ticket;
 use App\Services\DatabaseBackup;
+use App\Services\DatabaseCopier;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -115,5 +116,32 @@ class DatabaseBackupTest extends TestCase
         $created = array_values(array_diff(File::glob(storage_path(DatabaseBackup::DIRECTORY).'/netticket-backup-*.sqlite'), $before));
         $this->assertCount(1, $created);
         File::delete($created);
+    }
+
+    public function test_sqlite_databases_only_offer_the_sqlite_format(): void
+    {
+        $this->assertSame(['sqlite'], array_keys(DatabaseBackup::formats()));
+        $this->expectExceptionMessage('Format backup sql tidak tersedia');
+        app(DatabaseBackup::class)->create($this->directory, 'sql');
+    }
+
+    public function test_copier_moves_every_row_into_a_freshly_migrated_database(): void
+    {
+        $ticket = Ticket::factory()->assignedTo($this->userWithRole(Role::TEKNISI))->create();
+        $path = $this->directory.DIRECTORY_SEPARATOR.'copy.sqlite';
+        File::ensureDirectoryExists($this->directory);
+        File::put($path, '');
+        config(['database.connections.copy_target' => ['driver' => 'sqlite', 'database' => $path, 'prefix' => '', 'foreign_key_constraints' => false]]);
+        $this->artisan('migrate', ['--database' => 'copy_target'])->assertSuccessful();
+
+        $copier = app(DatabaseCopier::class);
+        $counts = $copier->copy(DB::connection(), DB::connection('copy_target'), $copier->tables(DB::connection()));
+
+        $this->assertSame(1, $counts['tickets']);
+        $this->assertSame(1, $counts['ticket_technician']);
+        // Categories seeded by the migrations are replaced, not doubled.
+        $this->assertSame(DB::table('ticket_categories')->count(), $counts['ticket_categories']);
+        $this->assertSame($ticket->ticket_number, DB::connection('copy_target')->table('tickets')->value('ticket_number'));
+        DB::purge('copy_target');
     }
 }

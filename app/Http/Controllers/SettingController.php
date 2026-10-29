@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -23,6 +24,7 @@ class SettingController extends Controller
             'settings' => Setting::values(),
             'categoryCount' => TicketCategory::query()->where('active', true)->count(),
             'modemCount' => ModemType::query()->where('active', true)->count(),
+            'backupFormats' => DatabaseBackup::formats(),
         ]);
     }
 
@@ -76,13 +78,16 @@ class SettingController extends Controller
      */
     public function backup(Request $request, DatabaseBackup $backup): BinaryFileResponse
     {
-        $request->validate(
-            ['password' => ['required', 'current_password']],
+        $data = $request->validate(
+            [
+                'password' => ['required', 'current_password'],
+                'format' => ['nullable', Rule::in(array_keys(DatabaseBackup::formats()))],
+            ],
             ['password.current_password' => 'Password salah'],
             ['password' => 'password'],
         );
 
-        $path = $backup->create();
+        $path = $backup->create(format: $data['format'] ?? 'sqlite');
         Log::info('Database backup downloaded', ['user' => $request->user()->username, 'ip' => $request->ip()]);
 
         return response()->download($path, basename($path), ['Content-Type' => DatabaseBackup::contentType($path)])->deleteFileAfterSend();

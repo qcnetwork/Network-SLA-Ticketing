@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Database\Connection;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use PDO;
@@ -23,30 +24,95 @@ class DatabaseBackup
 
     private const ROWS_PER_INSERT = 200;
 
+    public function __construct(private DatabaseCopier $copier) {}
+
     /**
-     * Write a snapshot into the backup directory and return its path.
+     * Formats a backup can be written in on the current database: a SQLite database always works
+     * (and runs the app as is), a .sql dump only from MySQL.
+     *
+     * @return array<string, string> format => label
      */
-    public function create(?string $directory = null): string
+    public static function formats(): array
+    {
+        return match (DB::connection()->getDriverName()) {
+            'mysql', 'mariadb' => ['sqlite' => 'SQLite (.sqlite)', 'sql' => 'MySQL (.sql)'],
+            default => ['sqlite' => 'SQLite (.sqlite)'],
+        };
+    }
+
+    /**
+     * Write a snapshot into the backup directory and return its path. Without a format, SQLite
+     * databases back up as .sqlite and MySQL as a .sql dump.
+     */
+    public function create(?string $directory = null, ?string $format = null): string
     {
         $connection = DB::connection();
-        $extension = match ($connection->getDriverName()) {
-            'sqlite' => 'sqlite',
-            'mysql', 'mariadb' => 'sql',
-            default => throw new RuntimeException('Backup dari aplikasi hanya tersedia untuk database SQLite dan MySQL'),
-        };
+        $driver = $connection->getDriverName();
+        if (! in_array($driver, ['sqlite', 'mysql', 'mariadb'], true)) {
+            throw new RuntimeException('Backup dari aplikasi hanya tersedia untuk database SQLite dan MySQL');
+        }
+        $format ??= $driver === 'sqlite' ? 'sqlite' : 'sql';
+        if (! array_key_exists($format, self::formats())) {
+            throw new RuntimeException("Format backup {$format} tidak tersedia untuk database {$driver}");
+        }
 
         $directory ??= $this->defaultDirectory();
         File::ensureDirectoryExists($directory);
-        $path = $directory.DIRECTORY_SEPARATOR.'netticket-backup-'.now()->format('Ymd-His').'.'.$extension;
+        $path = $directory.DIRECTORY_SEPARATOR.'netticket-backup-'.now()->format('Ymd-His').'.'.$format;
 
-        if ($extension === 'sqlite') {
-            $connection->statement('VACUUM INTO '.$connection->getPdo()->quote($path));
-            $this->stripLiveState($path);
-        } else {
-            $this->dumpMysql($connection, $path);
-        }
+        match (true) {
+            $format === 'sql' => $this->dumpMysql($connection, $path),
+            $driver === 'sqlite' => $this->snapshotSqlite($connection, $path),
+            default => $this->exportToSqlite($connection, $path),
+        };
 
         return $path;
+    }
+
+    private function snapshotSqlite(Connection $connection, string $path): void
+    {
+        $connection->statement('VACUUM INTO '.$connection->getPdo()->quote($path));
+        $this->stripLiveState($path);
+    }
+
+    /**
+     * Build a SQLite database with the app's own migrations and copy MySQL's rows into it, so the
+     * file can run the app directly. The rows are read inside one consistent snapshot. Sessions and
+     * cache stay empty, as in the other formats.
+     */
+    private function exportToSqlite(Connection $source, string $path): void
+    {
+        File::put($path, '');
+        $name = 'backup_export_'.uniqid();
+        config(["database.connections.{$name}" => [
+            'driver' => 'sqlite',
+            'database' => $path,
+            'prefix' => '',
+            'foreign_key_constraints' => false,
+        ]]);
+
+        try {
+            $exit = Artisan::call('migrate', ['--database' => $name, '--force' => true]);
+            if ($exit !== 0) {
+                throw new RuntimeException('Gagal menyiapkan file SQLite: '.trim(Artisan::output()));
+            }
+
+            $pdo = $source->getPdo();
+            $pdo->exec('SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            $pdo->exec('START TRANSACTION WITH CONSISTENT SNAPSHOT');
+            try {
+                $this->copier->copy($source, DB::connection($name), $this->copier->tables($source));
+            } finally {
+                $pdo->exec('COMMIT');
+            }
+        } catch (\Throwable $e) {
+            DB::purge($name);
+            File::delete($path);
+
+            throw $e;
+        }
+
+        DB::purge($name);
     }
 
     /**

@@ -125,6 +125,22 @@
                 <i data-lucide="alert-triangle" class="mt-0.5 h-3.5 w-3.5 shrink-0"></i>
                 File ini berisi data pelanggan, password akun (terenkripsi), dan token bot Telegram. Simpan di tempat aman dan jangan dibagikan.
             </p>
+            @if (count($backupFormats) > 1)
+                <fieldset>
+                    <legend class="label">Format file</legend>
+                    <div class="grid gap-2 sm:grid-cols-2">
+                        <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm has-checked:border-emerald-500 has-checked:bg-emerald-50">
+                            <input type="radio" name="format" value="sqlite" class="mt-0.5" @checked(old('format', 'sqlite') === 'sqlite')>
+                            <span><span class="font-medium">{{ $backupFormats['sqlite'] }}</span><span class="block text-xs text-slate-500">Satu file database utuh. Bisa langsung dipakai aplikasi atau dibuka dengan DB Browser for SQLite.</span></span>
+                        </label>
+                        <label class="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 p-3 text-sm has-checked:border-emerald-500 has-checked:bg-emerald-50">
+                            <input type="radio" name="format" value="sql" class="mt-0.5" @checked(old('format') === 'sql')>
+                            <span><span class="font-medium">{{ $backupFormats['sql'] }}</span><span class="block text-xs text-slate-500">Untuk restore ke MySQL lewat perintah mysql atau phpMyAdmin.</span></span>
+                        </label>
+                    </div>
+                    <x-field-error name="format" />
+                </fieldset>
+            @endif
             <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
                 <div class="flex-1">
                     <label class="label" for="backup_password">Konfirmasi password Anda</label>
