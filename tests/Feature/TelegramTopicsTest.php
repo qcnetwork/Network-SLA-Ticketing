@@ -1,0 +1,248 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\Role;
+use App\Enums\TicketStatus;
+use App\Models\Setting;
+use App\Models\Ticket;
+use App\Models\User;
+use App\Services\TelegramTicketList;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use Tests\TestCase;
+
+class TelegramTopicsTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private const LOG_TOPIC = 11;
+
+    private const LIST_TOPIC = 22;
+
+    private User $cs;
+
+    private int $nextMessageId = 100;
+
+    /**
+     * Description returned for editMessageText; null means the edit succeeds.
+     */
+    private ?string $editError = null;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->cs = $this->userWithRole(Role::CS);
+        Setting::write([
+            'bot_token' => '123456:ABC-def',
+            'chat_id' => '-1001234567890',
+            'log_topic_id' => (string) self::LOG_TOPIC,
+            'list_topic_id' => (string) self::LIST_TOPIC,
+        ]);
+
+        Http::fake(function (Request $request) {
+            if (str_ends_with($request->url(), '/editMessageText')) {
+                return Http::response($this->editError ? ['ok' => false, 'description' => $this->editError] : ['ok' => true, 'result' => true]);
+            }
+
+            return Http::response(['ok' => true, 'result' => ['message_id' => $this->nextMessageId++]]);
+        });
+    }
+
+    private function createTicket(string $name): Ticket
+    {
+        $this->actingAs($this->cs)->post('/tickets', [
+            'customer_name' => $name,
+            'customer_phone' => '081234567890',
+            'category' => 'LOS Merah / Kabel Putus',
+            'priority' => 'SEDANG',
+            'complaint' => 'Internet mati',
+        ])->assertSessionHasNoErrors();
+
+        return Ticket::query()->latest('id')->firstOrFail();
+    }
+
+    /**
+     * @return array<Request>
+     */
+    private function listPosts(?int $topic = self::LIST_TOPIC): array
+    {
+        return Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/sendMessage')
+            && ($request['message_thread_id'] ?? null) === $topic)->map(fn ($pair) => $pair[0])->values()->all();
+    }
+
+    /**
+     * The message ID Telegram gave the latest master list post.
+     */
+    private function lastListMessageId(int $topic = self::LIST_TOPIC): string
+    {
+        $response = Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/sendMessage')
+            && ($request['message_thread_id'] ?? null) === $topic)->last()[1];
+
+        return (string) $response['result']['message_id'];
+    }
+
+    /**
+     * @return array<Request>
+     */
+    private function listEdits(): array
+    {
+        return Http::recorded(fn (Request $request) => str_ends_with($request->url(), '/editMessageText'))->map(fn ($pair) => $pair[0])->values()->all();
+    }
+
+    public function test_ticket_notifications_go_to_the_log_topic(): void
+    {
+        $ticket = $this->createTicket('Budi');
+        $this->actingAs($this->cs)->post("/tickets/{$ticket->ticket_number}/actions/TERUSKAN_HELPDESK")->assertSessionHasNoErrors();
+
+        $logTexts = collect($this->listPosts(self::LOG_TOPIC))->map(fn (Request $request) => $request['text']);
+        $this->assertCount(2, $logTexts);
+        $this->assertStringContainsString('TIKET DIBUAT · PROSES CS', $logTexts[0]);
+        $this->assertStringContainsString('TIKET BARU MASUK', $logTexts[1]);
+    }
+
+    public function test_a_request_sends_its_log_message_and_list_update_together(): void
+    {
+        $ticket = $this->createTicket('Budi');
+        $sentBefore = Http::recorded()->count();
+
+        $this->actingAs($this->cs)->post("/tickets/{$ticket->ticket_number}/actions/TERUSKAN_HELPDESK")->assertSessionHasNoErrors();
+
+        // Exactly one log message and one list edit, each sent once.
+        $sent = Http::recorded()->slice($sentBefore)->map(fn ($pair) => Str::afterLast($pair[0]->url(), '/'))->values()->all();
+        $this->assertEqualsCanonicalizing(['sendMessage', 'editMessageText'], $sent);
+    }
+
+    public function test_log_messages_use_the_general_chat_without_a_topic(): void
+    {
+        Setting::write(['log_topic_id' => '', 'list_topic_id' => '']);
+
+        $ticket = $this->createTicket('Budi');
+        $this->actingAs($this->cs)->post("/tickets/{$ticket->ticket_number}/actions/TERUSKAN_HELPDESK");
+
+        Http::assertSent(fn (Request $request) => str_contains($request['text'], 'TIKET BARU MASUK') && ! isset($request['message_thread_id']));
+        $this->assertSame([], $this->listPosts());
+    }
+
+    public function test_daily_master_list_is_posted_once_then_edited(): void
+    {
+        $ticket = $this->createTicket('Budi Santoso');
+
+        $posts = $this->listPosts();
+        $this->assertCount(1, $posts);
+        $this->assertStringContainsString('MASTER LIST TIKET', $posts[0]['text']);
+        $this->assertStringContainsString("🎧 <b>PROSES CS (1)</b>\n1. <code>{$ticket->ticket_number}</code> · Budi Santoso", $posts[0]['text']);
+        $listMessageId = $this->lastListMessageId();
+        $this->assertSame($listMessageId, Setting::read('ticket_list_message_id'));
+
+        $this->actingAs($this->cs)->post("/tickets/{$ticket->ticket_number}/actions/TERUSKAN_HELPDESK");
+
+        $this->assertCount(1, $this->listPosts());
+        $edit = collect($this->listEdits())->last();
+        $this->assertSame((int) $listMessageId, $edit['message_id']);
+        $this->assertStringContainsString('🟡 <b>ANTRIAN HELPDESK (1)</b>', $edit['text']);
+        $this->assertStringNotContainsString('PROSES CS', $edit['text']);
+    }
+
+    public function test_a_new_day_starts_a_new_list_message_and_keeps_yesterdays(): void
+    {
+        $this->createTicket('Budi');
+        $this->assertCount(1, $this->listPosts());
+
+        $this->travel(1)->days();
+        $this->artisan('tickets:telegram-list')->assertSuccessful();
+
+        $posts = $this->listPosts();
+        $this->assertCount(2, $posts);
+        $this->assertStringContainsString('Budi', $posts[1]['text']);
+        $this->assertSame($this->lastListMessageId(), Setting::read('ticket_list_message_id'));
+        $this->assertSame(now()->toDateString(), Setting::read('ticket_list_date'));
+    }
+
+    public function test_list_holds_open_tickets_and_only_todays_closed_ones(): void
+    {
+        $open = Ticket::factory()->status(TicketStatus::PERBAIKAN)->create(['customer_name' => 'Masih Proses']);
+        $closedToday = Ticket::factory()->status(TicketStatus::TUTUP)->create(['customer_name' => 'Tutup Hari Ini', 'closed_at' => now()]);
+        Ticket::factory()->status(TicketStatus::TUTUP)->create(['customer_name' => 'Tutup Kemarin', 'closed_at' => now()->subDay()]);
+
+        $list = app(TelegramTicketList::class);
+        $text = $list->message($list->tickets(), now());
+
+        $this->assertStringContainsString("🔧 <b>PERBAIKAN (TEKNISI) (1)</b>\n1. <code>{$open->ticket_number}</code> · Masih Proses", $text);
+        $this->assertStringContainsString("✅ <b>TUTUP / SELESAI (1)</b>\n1. <code>{$closedToday->ticket_number}</code> · Tutup Hari Ini", $text);
+        $this->assertStringNotContainsString('Tutup Kemarin', $text);
+        $this->assertStringContainsString('Aktif: <b>1</b> · Tutup hari ini: <b>1</b>', $text);
+        // Open tickets come before the closed ones.
+        $this->assertLessThan(strpos($text, $closedToday->ticket_number), strpos($text, $open->ticket_number));
+    }
+
+    public function test_each_node_is_numbered_from_its_oldest_ticket(): void
+    {
+        $newer = Ticket::factory()->create(['customer_name' => 'Baru Masuk', 'created_at' => now()->subHour()]);
+        $older = Ticket::factory()->create(['customer_name' => 'Lama Masuk', 'created_at' => now()->subHours(5)]);
+        Ticket::factory()->status(TicketStatus::PROSES_CS)->create(['customer_name' => 'Di CS']);
+
+        $list = app(TelegramTicketList::class);
+        $text = $list->message($list->tickets(), now());
+
+        $this->assertStringContainsString("🟡 <b>ANTRIAN HELPDESK (2)</b>\n"
+            ."1. <code>{$older->ticket_number}</code> · Lama Masuk\n"
+            ."2. <code>{$newer->ticket_number}</code> · Baru Masuk\n", $text);
+        // Nodes follow the workflow: Proses CS comes before the helpdesk queue.
+        $this->assertLessThan(strpos($text, 'ANTRIAN HELPDESK'), strpos($text, 'PROSES CS'));
+    }
+
+    public function test_a_long_list_is_cut_to_fit_one_telegram_message(): void
+    {
+        Ticket::factory()->count(150)->create();
+
+        $list = app(TelegramTicketList::class);
+        $text = $list->message($list->tickets(), now());
+
+        $this->assertLessThan(4096, mb_strlen(strip_tags($text)));
+        $this->assertMatchesRegularExpression('/… dan \d+ tiket lainnya/', $text);
+    }
+
+    public function test_unchanged_list_is_not_reposted(): void
+    {
+        $this->createTicket('Budi');
+        $this->editError = 'Bad Request: message is not modified';
+
+        app(TelegramTicketList::class)->refresh();
+
+        $this->assertCount(1, $this->listPosts());
+    }
+
+    public function test_deleted_list_message_is_replaced(): void
+    {
+        $this->createTicket('Budi');
+        $this->editError = 'Bad Request: message to edit not found';
+
+        app(TelegramTicketList::class)->refresh();
+
+        $this->assertCount(2, $this->listPosts());
+        $this->assertSame($this->lastListMessageId(), Setting::read('ticket_list_message_id'));
+    }
+
+    public function test_settings_store_topics_and_restart_the_list_when_it_moves(): void
+    {
+        $this->createTicket('Budi');
+        $this->actingAs($this->userWithRole(Role::SPV));
+
+        $this->put('/settings', ['log_topic_id' => 'abc'])->assertSessionHasErrors('log_topic_id');
+
+        $this->put('/settings', [
+            'bot_token' => '123456:ABC-def', 'chat_id' => '-1001234567890',
+            'log_topic_id' => '11', 'list_topic_id' => '33',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame('33', Setting::read('list_topic_id'));
+        $posts = $this->listPosts(33);
+        $this->assertCount(1, $posts);
+        $this->assertStringContainsString('MASTER LIST TIKET', $posts[0]['text']);
+        $this->assertSame($this->lastListMessageId(33), Setting::read('ticket_list_message_id'));
+    }
+}

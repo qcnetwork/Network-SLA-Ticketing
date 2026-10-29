@@ -35,21 +35,29 @@ class MonthlySummarySheet extends StringValueBinder implements FromArray, Should
             [($r['period'] === 'daily' ? 'LAPORAN HARIAN' : 'LAPORAN BULANAN').' SISTEM TICKETING HELPDESK & CS'],
             ["Periode: {$r['period_label']}"],
             [],
-            ['Indikator KPI', 'Nilai'],
+            ['Indikator KPI', 'Nilai', 'Persentase'],
             ['Total Tiket Masuk', $r['total']],
-            ['Tiket Selesai (Tutup)', $r['closed']],
-            ['Tiket Masih Berjalan', $r['in_progress']],
-            ['Diselesaikan Remote', $r['remote_resolved']],
-            ['Ditangani Teknisi', $r['technician_assigned']],
-            ['Sempat Terkendala (Cek Ulang)', $r['rechecked']],
+            ['Tiket Selesai (Tutup)', $r['closed'], $r['percentages']['closed'].'%'],
+            ['Tiket Masih Berjalan', $r['in_progress'], $r['percentages']['in_progress'].'%'],
+            ['Pending (Menunggu Respon Pelanggan)', $r['pending'], $r['percentages']['pending'].'%'],
+            ['Diselesaikan Remote', $r['remote_resolved'], $r['percentages']['remote_resolved'].'%'],
+            ['Ditangani Teknisi', $r['technician_assigned'], $r['percentages']['technician_assigned'].'%'],
+            ['Sempat Terkendala (Cek Ulang)', $r['rechecked'], $r['percentages']['rechecked'].'%'],
             ['Resolution Rate', $r['resolution_rate'].'%'],
             [],
             ['Kategori Gangguan', 'Jumlah', 'Persentase'],
         ];
-        $this->headingRows = [4, 13];
+        $this->headingRows = [4, count($rows)];
 
         foreach ($r['categories'] as $category) {
             $rows[] = [$category['category'], $category['count'], $category['percentage'].'%'];
+        }
+
+        $rows[] = [];
+        $rows[] = ['Penyelesaian Tiket', 'Jumlah', 'Persentase'];
+        $this->headingRows[] = count($rows);
+        foreach ($r['closure'] as $row) {
+            $rows[] = [$row['label'], $row['count'], $row['percentage'].'%'];
         }
 
         $rows[] = [];

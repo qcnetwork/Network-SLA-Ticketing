@@ -4,23 +4,37 @@
     @php
         $status = $ticket->status;
         $can = fn (A $action) => auth()->user()->can('perform', [$ticket, $action]);
-        $stepIndex = array_search(match ($status) { S::CEK_ULANG => S::HELPDESK_CEK, S::GAMAS => S::PERBAIKAN, default => $status }, $flow, true);
+        // Helpdesk still holds a queued ticket until a technician is assigned, so it stays on their step.
+        $stepIndex = array_search(match ($status) { S::CEK_ULANG, S::ANTRIAN_TEKNISI => S::HELPDESK_CEK, S::GAMAS => S::PERBAIKAN, default => $status }, $flow, true);
         $canClaim = $can(A::KLAIM_HELPDESK) && in_array($status, [S::ANTRIAN_HELPDESK, S::CEK_ULANG], true);
-        $canResolve = $can(A::SELESAI_REMOTE) && in_array($status, [S::HELPDESK_CEK, S::CEK_ULANG], true);
+        $canResolve = $can(A::SELESAI_REMOTE) && in_array($status, [S::HELPDESK_CEK, S::CEK_ULANG, S::ANTRIAN_TEKNISI], true);
+        $canQueue = $can(A::ANTRI_TEKNISI) && in_array($status, [S::HELPDESK_CEK, S::CEK_ULANG], true);
         $canRepair = $can(A::MULAI_PERBAIKAN) && $status === S::PERBAIKAN;
         $canReassign = $can(A::UBAH_TEKNISI) && $status === S::PERBAIKAN;
+        $canRequeue = $can(A::ANTRI_TEKNISI) && $status === S::PERBAIKAN;
         $canConfirm = $can(A::KONFIRMASI_NORMAL) && $status === S::MENUNGGU_KONFIRMASI;
         $canUrgency = $can(A::CATATAN_URGENSI_CS) && ! in_array($status, [S::PROSES_CS, S::TUTUP], true);
         $canDocument = $can(A::CATATAN_DOKUMENTASI) && $status !== S::TUTUP;
         $canRecategorize = $can(A::UBAH_KATEGORI) && $status !== S::TUTUP;
+        $canEditCustomer = $can(A::UBAH_DATA_PELANGGAN) && $status !== S::TUTUP;
         $canForward = $can(A::TERUSKAN_HELPDESK) && $status === S::PROSES_CS;
         $canCsClose = $can(A::SELESAI_EDUKASI_CS) && in_array($status, [S::PROSES_CS, S::ANTRIAN_HELPDESK], true);
         $actionUrl = fn (A $action) => route('tickets.perform', [$ticket, $action->value]);
     @endphp
 
-    <a href="{{ route('dashboard') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
-        <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke dashboard
-    </a>
+    @if ($myShare)
+        <a href="{{ route('archive.index') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
+            <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke arsip
+        </a>
+        <p class="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <i data-lucide="archive" class="mt-0.5 h-4 w-4 shrink-0"></i>
+            <span>Arsip dibagikan oleh {{ $myShare->sharedBy?->name ?? 'Helpdesk' }}. Hanya bisa dilihat, sampai {{ $myShare->expires_at->format('d/m/Y H:i') }}.</span>
+        </p>
+    @else
+        <a href="{{ route('dashboard') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
+            <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke dashboard
+        </a>
+    @endif
 
     <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
@@ -40,7 +54,7 @@
                 @endforeach
             @endcan
             @can('delete', $ticket)
-                <form method="POST" action="{{ route('tickets.destroy', $ticket) }}" onsubmit="return confirm({{ Js::from('Hapus tiket '.$ticket->ticket_number.'? Riwayat dan foto/video dokumentasi ikut terhapus permanen.') }})">
+                <form method="POST" action="{{ route('tickets.destroy', $ticket) }}" data-confirm="{{ 'Hapus tiket '.$ticket->ticket_number.'? Riwayat dan foto/video dokumentasi ikut terhapus permanen.' }}">
                     @csrf
                     @method('DELETE')
                     <button class="btn-danger text-xs"><i data-lucide="trash-2" class="h-4 w-4"></i>Hapus Tiket</button>
@@ -75,20 +89,92 @@
         @if ($status === S::CEK_ULANG)
             <p class="mt-3 flex items-center gap-1 text-xs font-medium text-rose-600"><i data-lucide="refresh-cw" class="h-3.5 w-3.5"></i>Pelanggan melaporkan masih terkendala. Tiket kembali ke Helpdesk untuk cek ulang.</p>
         @endif
+        @if ($status === S::ANTRIAN_TEKNISI)
+            <p class="mt-3 flex items-center gap-1 text-xs font-medium text-yellow-700"><i data-lucide="hourglass" class="h-3.5 w-3.5"></i>Perlu kunjungan teknisi. Menunggu teknisi tersedia untuk ditugaskan.</p>
+        @endif
     </div>
 
     {{-- On phones the actions sit between the ticket details and the long history; on desktop they form the right column. --}}
     <div class="grid gap-6 lg:grid-cols-3 lg:grid-rows-[auto_1fr]">
         <div class="space-y-6 lg:col-span-2">
             {{-- Customer & complaint --}}
-            <section class="card p-5">
-                <h2 class="mb-4 flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="user" class="h-4 w-4"></i>Data Pelanggan</h2>
-                <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+            <section class="card p-5" x-data="{ editing: @js($errors->hasAny(['customer', 'customer_name', 'customer_phone', 'customer_id', 'customer_address'])) }">
+                <div class="mb-4 flex items-center justify-between gap-3">
+                    <h2 class="flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="user" class="h-4 w-4"></i>Data Pelanggan</h2>
+                    @if ($canEditCustomer)
+                        <button type="button" x-show="! editing" @click="editing = true" class="btn-secondary px-3 py-1.5 text-xs"><i data-lucide="pencil" class="h-3.5 w-3.5"></i>Ubah</button>
+                    @endif
+                </div>
+
+                @if ($canEditCustomer)
+                    <form method="POST" action="{{ route('tickets.customer.update', $ticket) }}" x-show="editing" x-cloak class="space-y-4">
+                        @csrf
+                        @method('PUT')
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label class="label" for="edit_customer_name">Nama Pelanggan <span class="text-rose-500">*</span></label>
+                                <input id="edit_customer_name" name="customer_name" value="{{ old('customer_name', $ticket->customer_name) }}" class="input" required maxlength="150">
+                                <x-field-error name="customer_name" />
+                            </div>
+                            <div>
+                                <label class="label" for="edit_customer_phone">No. WhatsApp <span class="text-rose-500">*</span></label>
+                                <input id="edit_customer_phone" name="customer_phone" value="{{ old('customer_phone', $ticket->customer_phone) }}" class="input" required inputmode="tel">
+                                <x-field-error name="customer_phone" />
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label class="label" for="edit_customer_id">ID Pelanggan</label>
+                                <input id="edit_customer_id" name="customer_id" value="{{ old('customer_id', $ticket->customer_id) }}" class="input" maxlength="50">
+                                <x-field-error name="customer_id" />
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label class="label" for="edit_customer_address">Alamat / Shareloc</label>
+                                <input id="edit_customer_address" name="customer_address" value="{{ old('customer_address', $ticket->customer_address) }}" class="input" maxlength="255" placeholder="Alamat, link shareloc Google Maps/WhatsApp, atau koordinat (-6.2088, 106.8456)">
+                                <p class="mt-1 text-xs text-slate-500">Tempel link shareloc dari pelanggan, titik lokasinya otomatis terbaca.</p>
+                                <x-field-error name="customer_address" />
+                            </div>
+                        </div>
+                        <x-field-error name="customer" />
+                        <div class="flex justify-end gap-2">
+                            <button type="button" @click="editing = false" class="btn-secondary">Batal</button>
+                            <button class="btn-primary"><i data-lucide="save" class="h-4 w-4"></i>Simpan</button>
+                        </div>
+                    </form>
+                @endif
+
+                <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2" x-show="! editing">
                     <div><dt class="text-xs text-slate-500">Nama</dt><dd class="font-medium">{{ $ticket->customer_name }}</dd></div>
                     <div><dt class="text-xs text-slate-500">ID Pelanggan</dt><dd class="font-medium">{{ $ticket->customer_id ?? '-' }}</dd></div>
                     <div><dt class="text-xs text-slate-500">WhatsApp</dt><dd class="font-medium">{{ $ticket->customer_phone }}</dd></div>
                     <div><dt class="text-xs text-slate-500">Kategori</dt><dd class="font-medium">{{ $ticket->category }}</dd></div>
-                    <div class="sm:col-span-2"><dt class="text-xs text-slate-500">Alamat</dt><dd class="font-medium">{{ $ticket->customer_address ?: '-' }}</dd></div>
+                    <div class="sm:col-span-2">
+                        <dt class="text-xs text-slate-500">Alamat</dt>
+                        <dd class="font-medium break-all">
+                            @if (Str::startsWith($ticket->customer_address, ['http://', 'https://']))
+                                <a href="{{ $ticket->customer_address }}" target="_blank" rel="noopener noreferrer" class="text-indigo-700 hover:underline">{{ $ticket->customer_address }}</a>
+                            @else
+                                {{ $ticket->customer_address ?: '-' }}
+                            @endif
+                        </dd>
+                        @if ($canEditCustomer && ! $ticket->hasLocation())
+                            <p class="mt-1 text-xs text-slate-400">Belum ada titik lokasi. Klik Ubah untuk menambahkan shareloc.</p>
+                        @endif
+                    </div>
+                    @if ($ticket->hasLocation())
+                        @php($coordinates = App\Support\GeoLocation::format($ticket->latitude).', '.App\Support\GeoLocation::format($ticket->longitude))
+                        <div class="sm:col-span-2">
+                            <dt class="text-xs text-slate-500">Titik Lokasi</dt>
+                            <dd class="mt-1 space-y-2">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span class="font-mono font-medium">{{ $coordinates }}</span>
+                                    <a href="{{ $ticket->mapsUrl() }}" target="_blank" rel="noopener noreferrer" class="btn-secondary px-3 py-1.5 text-xs">
+                                        <i data-lucide="map-pin" class="h-3.5 w-3.5 text-rose-600"></i>Buka di Google Maps
+                                    </a>
+                                </div>
+                                <iframe src="{{ 'https://maps.google.com/maps?q='.str_replace(' ', '', $coordinates).'&z=16&output=embed' }}" title="Peta lokasi pelanggan"
+                                    class="aspect-video w-full rounded-lg border border-slate-200" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                            </dd>
+                        </div>
+                    @endif
                     <div class="sm:col-span-2">
                         <dt class="text-xs text-slate-500">Kendala</dt>
                         <dd class="mt-1 rounded-lg bg-slate-50 p-3 whitespace-pre-line wrap-break-word">{{ $ticket->complaint }}</dd>
@@ -144,18 +230,7 @@
                                 <p class="mt-1 text-sm whitespace-pre-line wrap-break-word text-slate-600">{{ $history->notes }}</p>
                             @endif
                             @if ($history->attachments->isNotEmpty())
-                                <div class="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                                    @foreach ($history->attachments as $attachment)
-                                        @php($photoUrl = route('tickets.attachment', [$ticket, $attachment]))
-                                        @if ($attachment->isVideo())
-                                            <video src="{{ $photoUrl }}" controls preload="metadata" playsinline title="{{ $attachment->original_name }}" class="aspect-square w-full rounded-lg border border-slate-200 bg-slate-900 object-cover"></video>
-                                        @else
-                                            <a href="{{ $photoUrl }}" target="_blank" rel="noopener" title="{{ $attachment->original_name }}">
-                                                <img src="{{ $photoUrl }}" alt="{{ $attachment->original_name }}" loading="lazy" class="aspect-square w-full rounded-lg border border-slate-200 object-cover hover:opacity-90">
-                                            </a>
-                                        @endif
-                                    @endforeach
-                                </div>
+                                <x-attachment-grid :attachments="$history->attachments" route="tickets.attachment" :parent="$ticket" />
                             @endif
                         </li>
                     @endforeach
@@ -177,7 +252,7 @@
                         <p class="text-xs text-slate-500">Estimasi selesai {{ $ticket->incident->estimated_resolved_at->format('d/m/Y H:i') }}</p>
                     @endif
                     @if ($status === S::GAMAS && $ticket->incident->isOpen() && auth()->user()->can('perform', [$ticket->incident, App\Enums\IncidentAction::TIKET_DILEPAS]))
-                        <form method="POST" action="{{ route('incidents.tickets.detach', [$ticket->incident, $ticket]) }}" onsubmit="return confirm('Lepas tiket ini dari gamas? Tiket akan kembali ke Antrian Helpdesk.')">
+                        <form method="POST" action="{{ route('incidents.tickets.detach', [$ticket->incident, $ticket]) }}" data-confirm="Lepas tiket ini dari gamas? Tiket akan kembali ke Antrian Helpdesk.">
                             @csrf
                             @method('DELETE')
                             <button class="btn-secondary w-full text-xs"><i data-lucide="unlink" class="h-4 w-4"></i>Bukan karena gamas, lepas tiket</button>
@@ -197,7 +272,7 @@
 
             @if ($canCsClose)
                 <form method="POST" action="{{ $actionUrl(A::SELESAI_EDUKASI_CS) }}" class="card space-y-3 p-5"
-                    onsubmit="return confirm('Tutup tiket ini? Pastikan pelanggan sudah konfirmasi koneksi normal.')">
+                    data-confirm="Tutup tiket ini? Pastikan pelanggan sudah konfirmasi koneksi normal.">
                     @csrf
                     <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="plug-zap" class="h-4 w-4 text-emerald-600"></i>Selesai dengan Edukasi</h3>
                     <p class="text-sm text-slate-500">Kendala sudah beres setelah pelanggan diarahkan (cabut-tancap adaptor, restart modem, dll)? Tutup tiket tanpa perlu ke Helpdesk.</p>
@@ -217,8 +292,15 @@
             @endif
 
             @if ($canResolve)
-                <div class="card p-5" x-data="{ mode: 'remote', modem: @js(old('modem', $ticket->modem ?? '')) }">
-                    <h3 class="mb-3 font-semibold">Hasil Pengecekan Helpdesk</h3>
+                @php($queued = $status === S::ANTRIAN_TEKNISI ? $ticket->histories->where('action', A::ANTRI_TEKNISI)->last() : null)
+                <div class="card p-5" x-data="{ mode: @js($queued ? 'teknisi' : 'remote'), modem: @js(old('modem', $ticket->modem ?? '')) }">
+                    <h3 class="mb-3 font-semibold">{{ $queued ? 'Antrian Teknisi' : 'Hasil Pengecekan Helpdesk' }}</h3>
+                    @if ($queued)
+                        <p class="mb-4 flex items-start gap-2 rounded-lg bg-yellow-50 p-3 text-xs text-yellow-800">
+                            <i data-lucide="hourglass" class="mt-0.5 h-3.5 w-3.5 shrink-0"></i>
+                            <span>Menunggu teknisi sejak {{ $queued->created_at->format('d/m/Y H:i') }} ({{ $queued->created_at->diffForHumans() }}). {{ $queued->notes }}</span>
+                        </p>
+                    @endif
                     <div class="mb-4">
                         <label class="label" for="modem">Modem / ONT Pelanggan</label>
                         <input id="modem" x-model="modem" list="modem_suggestions" maxlength="100" class="input" placeholder="Contoh: ZTE F609">
@@ -259,6 +341,18 @@
                         </div>
                         <button class="btn-warning w-full"><i data-lucide="wrench" class="h-4 w-4"></i>Tugaskan Teknisi</button>
                     </form>
+
+                    @if ($canQueue)
+                        {{-- For when a visit is needed but every technician's route is already full today. --}}
+                        <form method="POST" action="{{ $actionUrl(A::ANTRI_TEKNISI) }}" x-show="mode === 'teknisi'" x-cloak class="mt-4 space-y-3 border-t border-slate-100 pt-4">
+                            @csrf
+                            <input type="hidden" name="modem" :value="modem">
+                            <p class="text-sm font-medium text-slate-700">Teknisi belum tersedia?</p>
+                            <p class="text-xs text-slate-500">Masukkan ke Antrian Teknisi dulu. Teknisi bisa ditugaskan nanti dari tiket ini.</p>
+                            <textarea name="notes" rows="2" class="input" required placeholder="Kendala yang perlu dicek di lokasi, contoh: LOS merah, perlu cek ODP"></textarea>
+                            <button class="btn-secondary w-full"><i data-lucide="hourglass" class="h-4 w-4 text-yellow-600"></i>Masukkan Antrian Teknisi</button>
+                        </form>
+                    @endif
                 </div>
             @endif
 
@@ -287,6 +381,32 @@
                         <div class="grid grid-cols-2 gap-2">
                             <button type="button" @click="editing = false" class="btn-secondary">Batal</button>
                             <button class="btn-warning"><i data-lucide="save" class="h-4 w-4"></i>Simpan</button>
+                        </div>
+                    </form>
+                </div>
+            @endif
+
+            @if ($canRequeue)
+                {{-- For a visit that stalls after it was handed out: no material yet, customer away, bad weather. --}}
+                <div class="card p-5" x-data="{ open: @js($errors->has('notes') && old('requeue')) }">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="hourglass" class="h-4 w-4 text-yellow-600"></i>Pending Kunjungan</h3>
+                            <p class="mt-1 text-sm text-slate-500">Kembalikan ke Antrian Teknisi jika pengerjaan tertunda. Teknisi bisa ditugaskan lagi nanti.</p>
+                        </div>
+                        <button type="button" x-show="! open" @click="open = true" class="btn-secondary shrink-0 px-3 py-1.5 text-xs"><i data-lucide="hourglass" class="h-3.5 w-3.5"></i>Pending</button>
+                    </div>
+                    <form method="POST" action="{{ $actionUrl(A::ANTRI_TEKNISI) }}" x-show="open" x-cloak class="mt-4 space-y-3 border-t border-slate-100 pt-4">
+                        @csrf
+                        <input type="hidden" name="requeue" value="1">
+                        <div>
+                            <label class="label" for="requeue_notes">Alasan pending</label>
+                            <textarea id="requeue_notes" name="notes" rows="2" class="input" required placeholder="Contoh: Material kabel belum tersedia / pelanggan tidak di rumah sampai besok">{{ old('requeue') ? old('notes') : '' }}</textarea>
+                        </div>
+                        <p class="text-xs text-slate-500">Penugasan teknisi <span class="font-medium text-slate-700">{{ $ticket->technicianNames() ?: '-' }}</span> dilepas. Teknisi berikutnya memulai kunjungan dari awal.</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" @click="open = false" class="btn-secondary">Batal</button>
+                            <button class="btn-warning"><i data-lucide="hourglass" class="h-4 w-4"></i>Ke Antrian</button>
                         </div>
                     </form>
                 </div>
@@ -403,11 +523,8 @@
                     <p class="text-sm text-slate-500">Sesuaikan kategori jika hasil pengecekan berbeda dari laporan awal CS.</p>
                     <div>
                         <label class="label" for="recategorize_category">Kategori sebenarnya</label>
-                        <select id="recategorize_category" name="category" class="input" required>
-                            @foreach (App\Models\Ticket::CATEGORIES as $category)
-                                <option value="{{ $category }}" @selected($category === $ticket->category)>{{ $category }}</option>
-                            @endforeach
-                        </select>
+                        <x-option-search name="category" id="recategorize_category" :options="$categories" :selected="old('category', $ticket->category)"
+                            placeholder="Ketik untuk mencari kategori" message="Pilih kategori yang ada di daftar" />
                         <x-field-error name="category" />
                     </div>
                     <textarea name="notes" rows="2" class="input" maxlength="2000" placeholder="Alasan (opsional), contoh: Dicek di lokasi ternyata LOS merah, kabel drop putus"></textarea>
@@ -435,6 +552,66 @@
                     @endif
                 </div>
             @endif
+
+            @can('share', $ticket)
+                {{-- Read-only access to this one ticket for a technician who is not its crew, e.g. to look up a past visit. --}}
+                <div class="card space-y-3 p-5" x-data="{ open: @js($errors->has('user_id')), copied: false }">
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                            <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="share-2" class="h-4 w-4 text-indigo-600"></i>Bagikan ke Teknisi</h3>
+                            <p class="mt-1 text-sm text-slate-500">Akses lihat saja ke tiket ini, berakhir otomatis.</p>
+                        </div>
+                        <button type="button" x-show="! open" @click="open = true" class="btn-secondary shrink-0 px-3 py-1.5 text-xs"><i data-lucide="share-2" class="h-3.5 w-3.5"></i>Bagikan</button>
+                    </div>
+
+                    @if ($shares->isNotEmpty())
+                        <ul class="divide-y divide-slate-100 rounded-lg border border-slate-200 text-sm">
+                            @foreach ($shares as $share)
+                                <li class="flex items-center justify-between gap-2 px-3 py-2">
+                                    <div class="min-w-0">
+                                        <div class="truncate font-medium text-slate-800">{{ $share->user?->name }}</div>
+                                        <div class="text-xs text-slate-500">Sampai {{ $share->expires_at->format('d/m/Y H:i') }} · oleh {{ $share->sharedBy?->name ?? '-' }}</div>
+                                    </div>
+                                    <form method="POST" action="{{ route('tickets.shares.destroy', [$ticket, $share]) }}" data-confirm="{{ 'Cabut akses '.$share->user?->name.' ke tiket ini?' }}">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button class="text-xs font-semibold text-rose-600 hover:underline">Cabut</button>
+                                    </form>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+
+                    <form method="POST" action="{{ route('tickets.shares.store', $ticket) }}" x-show="open" x-cloak class="space-y-3 border-t border-slate-100 pt-3">
+                        @csrf
+                        <div>
+                            <label class="label" for="share_user">Teknisi</label>
+                            <select id="share_user" name="user_id" class="input" required>
+                                <option value="">Pilih teknisi</option>
+                                @foreach ($technicians as $technician)
+                                    <option value="{{ $technician->id }}" @selected(old('user_id') == $technician->id)>{{ $technician->name }}</option>
+                                @endforeach
+                            </select>
+                            <x-field-error name="user_id" />
+                        </div>
+                        <div>
+                            <label class="label" for="share_days">Lama akses</label>
+                            <select id="share_days" name="days" class="input">
+                                @foreach ($shareDurations as $days)
+                                    <option value="{{ $days }}" @selected($days === 1)>{{ $days }} hari</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <p class="text-xs text-slate-500">Teknisi mendapat notifikasi berisi link. Link tetap butuh login, jadi aman dikirim lewat WhatsApp/Telegram.</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button type="button" @click="navigator.clipboard?.writeText(@js(route('tickets.show', $ticket))).then(() => copied = true)" class="btn-secondary">
+                                <i data-lucide="link" class="h-4 w-4"></i><span x-text="copied ? 'Tersalin' : 'Salin Link'"></span>
+                            </button>
+                            <button class="btn-primary"><i data-lucide="share-2" class="h-4 w-4"></i>Bagikan</button>
+                        </div>
+                    </form>
+                </div>
+            @endcan
         </aside>
     </div>
 </x-layouts.app>

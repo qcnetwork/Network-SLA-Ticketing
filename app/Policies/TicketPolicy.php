@@ -13,7 +13,7 @@ class TicketPolicy
     public function view(User $user, Ticket $ticket): bool
     {
         if ($user->role === Role::TEKNISI) {
-            return $ticket->status === TicketStatus::PERBAIKAN && $ticket->isAssignedTo($user);
+            return $this->worksOn($user, $ticket) || $ticket->isSharedWith($user);
         }
 
         return true;
@@ -26,7 +26,23 @@ class TicketPolicy
 
     public function perform(User $user, Ticket $ticket, TicketAction $action): bool
     {
-        return $this->view($user, $ticket) && $user->hasRole(...$action->allowedRoles());
+        // A ticket shared through the archive is read-only: only the assigned crew acts on it.
+        $mayAct = $user->role === Role::TEKNISI ? $this->worksOn($user, $ticket) : true;
+
+        return $mayAct && $user->hasRole(...$action->allowedRoles());
+    }
+
+    /**
+     * Who may give a technician temporary access to a ticket.
+     */
+    public function share(User $user, Ticket $ticket): bool
+    {
+        return $user->hasRole(Role::HELPDESK, Role::SPV);
+    }
+
+    private function worksOn(User $user, Ticket $ticket): bool
+    {
+        return $ticket->status === TicketStatus::PERBAIKAN && $ticket->isAssignedTo($user);
     }
 
     public function contactCustomer(User $user, Ticket $ticket): bool

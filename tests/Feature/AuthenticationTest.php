@@ -69,6 +69,31 @@ class AuthenticationTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_guessing_one_account_from_many_ips_is_throttled(): void
+    {
+        User::factory()->create(['username' => 'spv', 'password' => 'secret123']);
+
+        for ($i = 0; $i < 10; $i++) {
+            $this->withServerVariables(['REMOTE_ADDR' => "10.0.0.{$i}"])->post('/login', ['username' => 'spv', 'password' => 'wrong']);
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => '10.0.0.99'])->post('/login', ['username' => 'spv', 'password' => 'secret123'])
+            ->assertSessionHasErrors('username');
+        $this->assertGuest();
+    }
+
+    public function test_trying_passwords_across_many_accounts_from_one_ip_is_throttled(): void
+    {
+        User::factory()->create(['username' => 'target', 'password' => 'secret123']);
+
+        for ($i = 0; $i < 50; $i++) {
+            $this->post('/login', ['username' => "user{$i}", 'password' => 'qcnet123']);
+        }
+
+        $this->post('/login', ['username' => 'target', 'password' => 'secret123'])->assertSessionHasErrors('username');
+        $this->assertGuest();
+    }
+
     public function test_user_can_change_own_password(): void
     {
         $user = User::factory()->create(['password' => 'secret123']);

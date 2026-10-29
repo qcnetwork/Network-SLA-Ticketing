@@ -11,8 +11,9 @@ class IncidentPolicy
 {
     public function view(User $user, Incident $incident): bool
     {
+        // Like tickets, a technician's access ends with the work: a closed gamas lists customers' details.
         if ($user->role === Role::TEKNISI) {
-            return $incident->isAssignedTo($user);
+            return $incident->isOpen() && $incident->isAssignedTo($user);
         }
 
         return true;

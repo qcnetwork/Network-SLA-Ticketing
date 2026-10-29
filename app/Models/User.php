@@ -34,6 +34,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'role' => Role::class,
             'active' => 'boolean',
+            'hidden_board_statuses' => 'array',
         ];
     }
 

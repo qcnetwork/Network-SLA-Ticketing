@@ -16,7 +16,37 @@ class DocumentationPhotoStore
     public const MESSAGES = [
         'photos.max' => 'Maksimal 5 foto/video per catatan',
         'photos.*.mimes' => 'File dokumentasi harus berupa foto (JPG, PNG, WEBP) atau video (MP4, MOV, WEBM, 3GP)',
+        'photos.*.uploaded' => 'File gagal diunggah karena melebihi batas upload server. Kirim file yang lebih kecil, atau minta admin menaikkan upload_max_filesize di php.ini',
     ];
+
+    /**
+     * Upload limits in bytes, lowered to what PHP accepts: a file over upload_max_filesize or a
+     * request over post_max_size never reaches validation, so the picker checks them up front.
+     *
+     * @return array{photo: int, video: int, total: int} total is 0 when PHP sets no limit
+     */
+    public static function limits(): array
+    {
+        $perFile = UploadedFile::getMaxFilesize();
+
+        return [
+            'photo' => (int) min(self::MAX_PHOTO_KB * 1024, $perFile),
+            'video' => (int) min(self::MAX_VIDEO_KB * 1024, $perFile),
+            'total' => self::iniBytes((string) ini_get('post_max_size')),
+        ];
+    }
+
+    private static function iniBytes(string $value): int
+    {
+        $number = (int) $value;
+
+        return match (strtolower(substr(trim($value), -1))) {
+            'g' => $number * 1024 ** 3,
+            'm' => $number * 1024 ** 2,
+            'k' => $number * 1024,
+            default => $number,
+        };
+    }
 
     /**
      * Validation rules for documentation photos and videos; each kind gets its own size limit.

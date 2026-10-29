@@ -7,13 +7,14 @@ use App\Enums\Role;
 use App\Enums\TicketAction;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
-use App\Jobs\SendTelegramMessage;
 use App\Models\Incident;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\GeoLocation;
 use App\Support\PhoneNumber;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -32,7 +33,9 @@ class TicketWorkflowService
     public function __construct(
         private TicketNumberGenerator $numbers,
         private TelegramService $telegram,
+        private TelegramOutbox $outbox,
         private DocumentationPhotoStore $photoStore,
+        private TicketNotifier $notifier,
     ) {}
 
     /**
@@ -43,8 +46,10 @@ class TicketWorkflowService
     public function create(array $data, User $actor, ?Incident $incident = null): Ticket
     {
         $this->ensureRole(TicketAction::TIKET_DIBUAT, $actor);
+        // Read outside the transaction: a short link needs a request to Google to find the pin.
+        $coordinates = GeoLocation::fromText($data['customer_address'] ?? null);
 
-        $ticket = DB::transaction(function () use ($data, $actor, $incident) {
+        $ticket = DB::transaction(function () use ($data, $actor, $incident, $coordinates) {
             if ($incident) {
                 $incident = Incident::query()->lockForUpdate()->findOrFail($incident->id);
                 if (! $incident->isOpen()) {
@@ -59,6 +64,8 @@ class TicketWorkflowService
                 'customer_name' => $data['customer_name'],
                 'customer_phone' => PhoneNumber::normalize($data['customer_phone']),
                 'customer_address' => $data['customer_address'] ?? null,
+                'latitude' => $coordinates[0] ?? null,
+                'longitude' => $coordinates[1] ?? null,
                 'category' => $data['category'] ?? null ?: 'Internet Mati / LOS',
                 'priority' => $data['priority'] ?? TicketPriority::SEDANG,
                 'complaint' => $data['complaint'],
@@ -87,7 +94,14 @@ class TicketWorkflowService
             return $ticket;
         });
 
-        // The helpdesk group hears about the ticket once CS forwards it; gamas tickets are covered by the gamas notifications.
+        // Gamas tickets are covered by the gamas notifications; one message per customer would flood the group.
+        if (! $incident && Setting::read('notify_on_new_ticket') === '1') {
+            $this->outbox->push(
+                $this->telegram->ticketCreatedMessage($ticket),
+                ['ticket' => $ticket->ticket_number, 'action' => TicketAction::TIKET_DIBUAT->value],
+            );
+        }
+
         return $ticket;
     }
 
@@ -109,7 +123,8 @@ class TicketWorkflowService
             $previous = $ticket->status;
             $now = now();
 
-            if ($actor->role === Role::TEKNISI && ! $ticket->isAssignedTo($actor)) {
+            // Re-checked on the locked row: the ticket may have left PERBAIKAN since the policy check.
+            if ($actor->role === Role::TEKNISI && ($ticket->status !== TicketStatus::PERBAIKAN || ! $ticket->isAssignedTo($actor))) {
                 throw new AuthorizationException('Tiket ini tidak ditugaskan kepada Anda');
             }
 
@@ -142,8 +157,9 @@ class TicketWorkflowService
                     break;
 
                 case TicketAction::SELESAI_REMOTE:
-                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG],
-                        'Penyelesaian remote hanya bisa dari tahap Helpdesk Cek atau Cek Ulang');
+                    // From the technician queue too: the fault can turn out fixable remotely before anyone visits.
+                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG, TicketStatus::ANTRIAN_TEKNISI],
+                        'Penyelesaian remote hanya bisa dari tahap Helpdesk Cek, Cek Ulang, atau Antrian Teknisi');
                     $ticket->status = TicketStatus::MENUNGGU_KONFIRMASI;
                     $ticket->remote_resolution_notes = $notes ?? 'Masalah diselesaikan secara remote (reset/reboot/rebind).';
                     $ticket->modem = $modem ?? $ticket->modem;
@@ -151,9 +167,35 @@ class TicketWorkflowService
                     $description = "Penyelesaian remote oleh {$actor->name}: {$ticket->remote_resolution_notes}";
                     break;
 
+                case TicketAction::ANTRI_TEKNISI:
+                    // From Perbaikan too: a visit can stall (no material, customer away) after it was handed out.
+                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG, TicketStatus::PERBAIKAN],
+                        'Tiket hanya bisa masuk Antrian Teknisi dari tahap Helpdesk Cek, Cek Ulang, atau Perbaikan');
+                    $fromRepair = $ticket->status === TicketStatus::PERBAIKAN;
+                    if (! $notes) {
+                        throw ValidationException::withMessages(['notes' => $fromRepair
+                            ? 'Tuliskan alasan tiket dikembalikan ke Antrian Teknisi'
+                            : 'Tuliskan kendala yang perlu dicek teknisi di lokasi']);
+                    }
+                    $ticket->modem = $modem ?? $ticket->modem;
+                    $ticket->status = TicketStatus::ANTRIAN_TEKNISI;
+
+                    if ($fromRepair) {
+                        $previousCrew = $ticket->technicianNames() ?: '-';
+                        // The queue means no one is on it yet; whoever is assigned next starts the visit afresh.
+                        $ticket->technicians()->sync([]);
+                        $ticket->setRelation('technicians', new EloquentCollection);
+                        $ticket->repair_started_at = null;
+                        $ticket->technician_notes = null;
+                        $description = "Helpdesk ({$actor->name}) mengembalikan tiket ke Antrian Teknisi dari teknisi [{$previousCrew}]. Alasan: {$notes}";
+                    } else {
+                        $description = "Helpdesk ({$actor->name}): perlu kunjungan teknisi, menunggu teknisi tersedia. Kendala: {$notes}";
+                    }
+                    break;
+
                 case TicketAction::PERLU_TEKNISI:
-                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG],
-                        'Penugasan teknisi hanya bisa dari tahap Helpdesk Cek atau Cek Ulang');
+                    $this->requireStatus($ticket, [TicketStatus::HELPDESK_CEK, TicketStatus::CEK_ULANG, TicketStatus::ANTRIAN_TEKNISI],
+                        'Penugasan teknisi hanya bisa dari tahap Helpdesk Cek, Cek Ulang, atau Antrian Teknisi');
                     $technicians = $this->activeTechnicians($data['technician_ids'] ?? [],
                         'Pilih minimal satu teknisi aktif untuk eskalasi ke perbaikan');
                     $ticket->modem = $modem ?? $ticket->modem;
@@ -183,6 +225,8 @@ class TicketWorkflowService
                     }
                     $ticket->technicians()->sync($technicians->modelKeys());
                     $ticket->setRelation('technicians', $technicians);
+                    // The status stays Perbaikan, so only the newly added technicians hear about it.
+                    $this->notifier->techniciansAssigned($ticket, $technicians->diff($current), $actor);
                     $description = "Helpdesk ({$actor->name}) mengubah teknisi dari [".($current->pluck('name')->implode(', ') ?: '-')
                         ."] menjadi [{$ticket->technicianNames()}]. Alasan: {$notes}";
                     break;
@@ -280,7 +324,7 @@ class TicketWorkflowService
                 'action' => $action,
                 'from_status' => $previous,
                 'to_status' => $ticket->status,
-                'notes' => in_array($action, self::KEEPS_FULL_DESCRIPTION, true) ? $description : ($notes ?? $description),
+                'notes' => $this->keepsFullDescription($action, $previous) ? $description : ($notes ?? $description),
                 'urgency_level' => $action === TicketAction::CATATAN_URGENSI_CS ? ($data['urgency_level'] ?? 'MENDESAK') : null,
             ]);
 
@@ -296,7 +340,86 @@ class TicketWorkflowService
             return $ticket;
         }
 
-        $this->notify($ticket, $action, $previous, in_array($action, self::KEEPS_FULL_DESCRIPTION, true) ? $description : ($notes ?? $description), $actor, $data);
+        $this->notify($ticket, $action, $previous, $this->keepsFullDescription($action, $previous) ? $description : ($notes ?? $description), $actor, $data);
+
+        return $ticket;
+    }
+
+    /**
+     * Sending a ticket back from Perbaikan removes the crew, so the record keeps who it was taken from.
+     */
+    private function keepsFullDescription(TicketAction $action, TicketStatus $previous): bool
+    {
+        return in_array($action, self::KEEPS_FULL_DESCRIPTION, true)
+            || ($action === TicketAction::ANTRI_TEKNISI && $previous === TicketStatus::PERBAIKAN);
+    }
+
+    /**
+     * Correct or complete the customer's details, e.g. a shareloc the customer sent after CS made the ticket.
+     *
+     * @param  array{customer_name: string, customer_phone: string, customer_id?: ?string, customer_address?: ?string}  $data
+     */
+    public function updateCustomer(Ticket $ticket, array $data, User $actor): Ticket
+    {
+        $this->ensureRole(TicketAction::UBAH_DATA_PELANGGAN, $actor);
+        $address = trim((string) ($data['customer_address'] ?? '')) ?: null;
+        // Only a new address is looked up; a short link needs a request to Google, so it happens outside the transaction.
+        $addressChanged = $address !== $ticket->customer_address;
+        $coordinates = $addressChanged ? GeoLocation::fromText($address) : null;
+
+        [$ticket, $changes] = DB::transaction(function () use ($ticket, $data, $actor, $address, $addressChanged, $coordinates) {
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            if ($ticket->status === TicketStatus::TUTUP) {
+                throw ValidationException::withMessages(['customer' => 'Data pelanggan pada tiket yang sudah ditutup tidak dapat diubah']);
+            }
+
+            $before = $ticket->only(['customer_name', 'customer_phone', 'customer_id', 'customer_address']);
+            $hadLocation = $ticket->hasLocation();
+            $ticket->fill([
+                'customer_name' => trim($data['customer_name']),
+                'customer_phone' => PhoneNumber::normalize($data['customer_phone']),
+                // A blank ID keeps the one the ticket already has.
+                'customer_id' => trim((string) ($data['customer_id'] ?? '')) ?: $ticket->customer_id,
+                'customer_address' => $address,
+            ]);
+            if ($addressChanged) {
+                $ticket->latitude = $coordinates[0] ?? null;
+                $ticket->longitude = $coordinates[1] ?? null;
+            }
+
+            $labels = ['customer_name' => 'Nama', 'customer_phone' => 'WhatsApp', 'customer_id' => 'ID Pelanggan', 'customer_address' => 'Alamat'];
+            $changes = collect($labels)
+                ->filter(fn ($label, $field) => $before[$field] !== $ticket->{$field})
+                ->map(fn ($label, $field) => "{$label}: \"".($before[$field] ?? '-').'" → "'.($ticket->{$field} ?? '-').'"')
+                ->values();
+            if ($ticket->hasLocation() && (! $hadLocation || $ticket->isDirty(['latitude', 'longitude']))) {
+                $changes->push('Titik lokasi: '.GeoLocation::format($ticket->latitude).', '.GeoLocation::format($ticket->longitude));
+            } elseif ($hadLocation && ! $ticket->hasLocation()) {
+                $changes->push('Titik lokasi dihapus');
+            }
+            if ($changes->isEmpty()) {
+                throw ValidationException::withMessages(['customer' => 'Tidak ada data pelanggan yang berubah']);
+            }
+
+            $ticket->save();
+            $ticket->histories()->create([
+                'user_id' => $actor->id,
+                'actor_name' => $actor->name,
+                'action' => TicketAction::UBAH_DATA_PELANGGAN,
+                'from_status' => $ticket->status,
+                'to_status' => $ticket->status,
+                'notes' => "Data pelanggan diubah oleh {$actor->name}:\n".$changes->implode("\n"),
+            ]);
+
+            return [$ticket, $changes];
+        });
+
+        if (Setting::read('notify_on_status_change') === '1') {
+            $this->outbox->push(
+                $this->telegram->customerUpdatedMessage($ticket, $changes->all(), $actor->name),
+                ['ticket' => $ticket->ticket_number, 'action' => TicketAction::UBAH_DATA_PELANGGAN->value],
+            );
+        }
 
         return $ticket;
     }
@@ -337,7 +460,7 @@ class TicketWorkflowService
         // A forwarded ticket is new to the helpdesk group, so it is announced like a new ticket.
         if ($action === TicketAction::TERUSKAN_HELPDESK) {
             if (Setting::read('notify_on_new_ticket') === '1') {
-                SendTelegramMessage::dispatchAfterResponse(
+                $this->outbox->push(
                     $this->telegram->newTicketMessage($ticket, trim((string) ($data['notes'] ?? '')) ?: null),
                     ['ticket' => $ticket->ticket_number, 'action' => 'NEW_TICKET'],
                 );
@@ -346,8 +469,7 @@ class TicketWorkflowService
             return;
         }
 
-        // The helpdesk group never saw a ticket that CS handled on their own.
-        if ($previous === TicketStatus::PROSES_CS || Setting::read('notify_on_status_change') !== '1') {
+        if (Setting::read('notify_on_status_change') !== '1') {
             return;
         }
 
@@ -358,7 +480,7 @@ class TicketWorkflowService
             default => $this->telegram->statusUpdateMessage($ticket, $previous, $notes, $actor->name),
         };
 
-        SendTelegramMessage::dispatchAfterResponse($text, ['ticket' => $ticket->ticket_number, 'action' => $action->value]);
+        $this->outbox->push($text, ['ticket' => $ticket->ticket_number, 'action' => $action->value]);
     }
 
     /**

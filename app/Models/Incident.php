@@ -66,12 +66,12 @@ class Incident extends Model
     }
 
     /**
-     * Technicians only see the gamas assigned to them.
+     * Technicians only see the open gamas assigned to them.
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->role === Role::TEKNISI) {
-            $query->assignedTo($user);
+            $query->open()->assignedTo($user);
         }
 
         return $query;

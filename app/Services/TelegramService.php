@@ -8,9 +8,11 @@ use App\Models\Incident;
 use App\Models\Setting;
 use App\Models\TelegramLog;
 use App\Models\Ticket;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 class TelegramService
@@ -21,56 +23,160 @@ class TelegramService
     private const LIST_LIMIT = 25;
 
     /**
-     * Send a message to the configured group. Without a bot token/chat ID the
-     * message is only logged (simulator mode). Every message lands in telegram_logs.
+     * Send a message to the configured group, inside the log topic when one is set. Without a bot
+     * token/chat ID the message is only logged (simulator mode). Every message lands in telegram_logs.
      *
      * @return array{success: bool, error: ?string}
      */
     public function send(string $text, array $metadata = []): array
     {
+        return $this->sendMany([[$text, $metadata]])[0][0];
+    }
+
+    /**
+     * Send several log messages, plus any other Bot API calls such as the master list edit, all at once:
+     * Telegram takes ~0.7 s per call and the user waits for it, so a request waits for one round trip
+     * instead of one per call.
+     *
+     * @param  array<int, array{0: string, 1: array}>  $messages  [text, metadata] pairs for the log topic
+     * @param  array<string, array{0: string, 1: array}>  $calls  extra [method, payload] calls, keyed by name
+     * @return array{0: array<int, array{success: bool, error: ?string}>, 1: array<string, array>} results per message, decoded responses per extra call
+     */
+    public function sendMany(array $messages, array $calls = []): array
+    {
         $botToken = (string) Setting::read('bot_token');
         $chatId = (string) Setting::read('chat_id');
+        $topicId = (string) Setting::read('log_topic_id');
         $configured = $botToken !== '' && $chatId !== '';
-        $success = ! $configured;
-        $error = null;
 
+        $requests = [];
         if ($configured) {
-            try {
-                $response = Http::timeout(10)->asJson()->post("https://api.telegram.org/bot{$botToken}/sendMessage", [
+            foreach ($messages as $i => [$text]) {
+                $requests["message:{$i}"] = ['sendMessage', array_filter([
                     'chat_id' => $chatId,
+                    'message_thread_id' => $topicId !== '' ? (int) $topicId : null,
                     'text' => $text,
                     'parse_mode' => 'HTML',
-                ]);
-                $success = (bool) $response->json('ok');
-                if (! $success) {
-                    $error = $response->json('description') ?? 'Gagal mengirim ke Telegram API';
-                }
-            } catch (Throwable $e) {
-                // HTTP client errors quote the request URL, which carries the bot token.
-                $error = str_replace($botToken, '***', $e->getMessage());
-                Log::warning('Telegram sendMessage failed', ['error' => $error, 'exception' => $e::class]);
+                ])];
+            }
+            foreach ($calls as $key => $call) {
+                $requests["call:{$key}"] = $call;
+            }
+        }
+        $responses = $this->callMany($botToken, $requests);
+
+        $results = [];
+        foreach ($messages as $i => [$text, $metadata]) {
+            $response = $responses["message:{$i}"] ?? null;
+            $success = ! $configured || ($response['ok'] ?? false);
+            $error = $success ? null : ($response['description'] ?? 'Gagal mengirim ke Telegram API');
+            if ($error) {
+                Log::warning('Telegram sendMessage failed', ['error' => $error]);
+            }
+
+            TelegramLog::create([
+                'message' => $text,
+                'is_real_sent' => $configured && $success,
+                'simulated' => ! $configured,
+                'error' => $error,
+                'metadata' => $metadata,
+            ]);
+            $results[] = ['success' => $success, 'error' => $error];
+        }
+
+        if ($messages) {
+            $oldestKeptId = TelegramLog::query()->orderByDesc('id')->skip(TelegramLog::KEEP - 1)->value('id');
+            if ($oldestKeptId) {
+                TelegramLog::query()->where('id', '<', $oldestKeptId)->delete();
             }
         }
 
-        TelegramLog::create([
-            'message' => $text,
-            'is_real_sent' => $configured && $success,
-            'simulated' => ! $configured,
-            'error' => $error,
-            'metadata' => $metadata,
-        ]);
-
-        $oldestKeptId = TelegramLog::query()->orderByDesc('id')->skip(TelegramLog::KEEP - 1)->value('id');
-        if ($oldestKeptId) {
-            TelegramLog::query()->where('id', '<', $oldestKeptId)->delete();
+        $callResponses = [];
+        foreach (array_keys($calls) as $key) {
+            $callResponses[$key] = $responses["call:{$key}"] ?? ['ok' => false, 'description' => 'Bot Telegram belum dikonfigurasi'];
         }
 
-        return ['success' => $success, 'error' => $error];
+        return [$results, $callResponses];
+    }
+
+    /**
+     * Run Bot API calls concurrently. Each result is the decoded response, or an error description
+     * when the request itself failed.
+     *
+     * @param  array<string, array{0: string, 1: array}>  $requests
+     * @return array<string, array>
+     */
+    public function callMany(string $botToken, array $requests): array
+    {
+        if ($requests === []) {
+            return [];
+        }
+
+        // HTTP client errors quote the request URL, which carries the bot token.
+        $failure = fn (Throwable $e) => ['ok' => false, 'description' => str_replace($botToken, '***', $e->getMessage())];
+
+        try {
+            $responses = Http::pool(fn (Pool $pool) => collect($requests)
+                ->map(fn (array $request, string $key) => $pool->as($key)->timeout(10)->asJson()
+                    ->post("https://api.telegram.org/bot{$botToken}/{$request[0]}", $request[1]))
+                ->all());
+        } catch (Throwable $e) {
+            return array_map(fn () => $failure($e), $requests);
+        }
+
+        return collect($requests)->map(function (array $request, string $key) use ($responses, $failure) {
+            $response = $responses[$key] ?? null;
+            if ($response instanceof Throwable) {
+                return $failure($response);
+            }
+
+            return (array) $response?->json() ?: ['ok' => false, 'description' => 'Respon Telegram tidak valid'];
+        })->all();
     }
 
     public static function escape(?string $value): string
     {
         return htmlspecialchars((string) $value, ENT_NOQUOTES, 'UTF-8');
+    }
+
+    /**
+     * Logged as soon as the complaint is recorded, by whoever took it (CS, Helpdesk or a supervisor).
+     */
+    public function ticketCreatedMessage(Ticket $ticket): string
+    {
+        $e = self::escape(...);
+        $creator = $ticket->creator;
+
+        return "📥 <b>[TIKET DIBUAT · PROSES CS]</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."🎫 <b>No. Tiket:</b> <code>{$e($ticket->ticket_number)}</code>\n"
+            ."👤 <b>Pelanggan:</b> {$e($ticket->customer_name)}\n"
+            ."⚠️ <b>Kategori:</b> {$e($ticket->category)}\n"
+            ."📝 <b>Kendala:</b> {$e($ticket->complaint)}\n"
+            .'✍️ <b>Dibuat oleh:</b> '.($creator ? "{$e($creator->name)} ({$creator->role->label()})" : '-')."\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."{$ticket->status->telegramLabel()}\n"
+            ."⏰ <i>Waktu: {$ticket->created_at->format('d/m/Y H:i')}</i>\n"
+            .'<i>Tiket masih dalam tahap koordinasi dengan pelanggan.</i>';
+    }
+
+    /**
+     * @param  array<string>  $changes
+     */
+    public function customerUpdatedMessage(Ticket $ticket, array $changes, string $actor): string
+    {
+        $e = self::escape(...);
+
+        return "✏️ <b>[DATA PELANGGAN DIPERBARUI]</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."🎫 <b>No. Tiket:</b> <code>{$e($ticket->ticket_number)}</code>\n"
+            ."👤 <b>Pelanggan:</b> {$e($ticket->customer_name)}\n"
+            ."⚡ <b>Status Saat Ini:</b> {$ticket->status->label()}\n"
+            ."👤 <b>Petugas:</b> {$e($actor)}\n"
+            ."📝 <b>Perubahan:</b>\n".collect($changes)->map(fn (string $change) => '• '.$e($change))->implode("\n")."\n"
+            .($ticket->hasLocation() ? "🗺️ <b>Peta:</b> {$e($ticket->mapsUrl())}\n" : '')
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            .'⏰ <i>'.now()->format('d/m/Y H:i').'</i>';
     }
 
     public function newTicketMessage(Ticket $ticket, ?string $csNotes = null): string
@@ -91,6 +197,43 @@ class TelegramService
             ."🟡 <b>Status:</b> ANTRIAN HELPDESK\n"
             ."⏰ <i>Waktu: {$ticket->created_at->format('d/m/Y H:i')}</i>\n"
             .'<i>Silakan Helpdesk melakukan pengecekan di Web Dashboard.</i>';
+    }
+
+    /**
+     * Full ticket details for /detailtiket, sent only to the requester's DM since it holds the
+     * customer's contact details.
+     */
+    public function ticketDetailMessage(Ticket $ticket): string
+    {
+        $e = self::escape(...);
+        $ticket->loadMissing(['technicians', 'helpdesk', 'creator', 'incident']);
+        $histories = $ticket->histories()->with('user')->latest('id')->limit(3)->get()->reverse();
+
+        $history = $histories->map(fn ($item) => '• '.$item->created_at->format('d/m H:i').' · '.$e($item->action->label())
+            .' · '.$e($item->user?->name ?? $item->actor_name ?? 'Sistem')
+            .($item->notes ? "\n  <i>".$e(Str::limit($item->notes, 200)).'</i>' : ''))->implode("\n");
+
+        return "📄 <b>[DETAIL TIKET]</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."🎫 <b>No. Tiket:</b> <code>{$e($ticket->ticket_number)}</code>\n"
+            ."⚡ <b>Status:</b> {$ticket->status->telegramLabel()}\n"
+            ."🔥 <b>Prioritas:</b> {$ticket->priority->telegramLabel()}\n"
+            .($ticket->incident ? "📡 <b>Gamas:</b> <code>{$e($ticket->incident->incident_number)}</code>\n" : '')
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."👤 <b>Pelanggan:</b> {$e($ticket->customer_name)} ({$e($ticket->customer_id ?: '-')})\n"
+            ."📱 <b>WhatsApp:</b> {$e($ticket->customer_phone)}\n"
+            ."📍 <b>Alamat:</b> {$e($ticket->customer_address ?: '-')}\n"
+            .($ticket->hasLocation() ? "🗺️ <b>Peta:</b> {$e($ticket->mapsUrl())}\n" : '')
+            .($ticket->modem ? "📟 <b>Modem:</b> {$e($ticket->modem)}\n" : '')
+            ."⚠️ <b>Kategori:</b> {$e($ticket->category)}\n"
+            ."📝 <b>Kendala:</b> {$e(Str::limit($ticket->complaint, 800))}\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            .'✍️ <b>Dibuat:</b> '.$ticket->created_at->format('d/m/Y H:i').' oleh '.$e($ticket->creator?->name ?? '-')."\n"
+            .($ticket->helpdesk ? "🧑‍💻 <b>Helpdesk:</b> {$e($ticket->helpdesk->name)}\n" : '')
+            .($ticket->technicians->isNotEmpty() ? "👷 <b>Teknisi:</b> {$e($ticket->technicianNames())}\n" : '')
+            .($history !== '' ? "🕘 <b>Riwayat terakhir:</b>\n{$history}\n" : '')
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            .'🔗 '.$e(route('tickets.show', $ticket));
     }
 
     public function statusUpdateMessage(Ticket $ticket, TicketStatus $previous, ?string $notes, string $actor): string

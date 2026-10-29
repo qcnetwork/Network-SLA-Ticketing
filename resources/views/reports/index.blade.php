@@ -6,14 +6,17 @@
     @php
         $r = $report;
         $exportQuery = $isDaily ? ['period' => 'daily', 'date' => $r['date']] : ['year' => $r['year'], 'month' => $r['month']];
+        $share = $r['percentages'];
+        // [label, value, icon, colour, share of all tickets or null]
         $kpis = [
-            ['Total Tiket', $r['total'], 'inbox', 'text-slate-800'],
-            ['Selesai (Tutup)', $r['closed'], 'check-circle-2', 'text-emerald-600'],
-            ['Masih Berjalan', $r['in_progress'], 'loader', 'text-amber-600'],
-            ['Resolution Rate', $r['resolution_rate'].'%', 'target', 'text-indigo-600'],
-            ['Selesai Remote', $r['remote_resolved'], 'zap', 'text-sky-600'],
-            ['Ditangani Teknisi', $r['technician_assigned'], 'wrench', 'text-orange-600'],
-            ['Sempat Cek Ulang', $r['rechecked'], 'refresh-cw', 'text-rose-600'],
+            ['Total Tiket', $r['total'], 'inbox', 'text-slate-800', null],
+            ['Selesai (Tutup)', $r['closed'], 'check-circle-2', 'text-emerald-600', $share['closed']],
+            ['Masih Berjalan', $r['in_progress'], 'loader', 'text-amber-600', $share['in_progress']],
+            ['Pending Pelanggan', $r['pending'], 'message-square', 'text-purple-600', $share['pending']],
+            ['Resolution Rate', $r['resolution_rate'].'%', 'target', 'text-indigo-600', null],
+            ['Selesai Remote', $r['remote_resolved'], 'zap', 'text-sky-600', $share['remote_resolved']],
+            ['Ditangani Teknisi', $r['technician_assigned'], 'wrench', 'text-orange-600', $share['technician_assigned']],
+            ['Sempat Cek Ulang', $r['rechecked'], 'refresh-cw', 'text-rose-600', $share['rechecked']],
         ];
         $maxTech = max(1, $r['technicians']->max('count') ?? 1);
     @endphp
@@ -59,14 +62,61 @@
         </form>
     </div>
 
-    <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-        @foreach ($kpis as [$label, $value, $icon, $color])
+    <div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+        @foreach ($kpis as [$label, $value, $icon, $color, $percentage])
             <div class="card p-4">
                 <div class="flex items-center gap-1 text-xs font-medium text-slate-500"><i data-lucide="{{ $icon }}" class="h-3.5 w-3.5"></i>{{ $label }}</div>
-                <div class="mt-1 text-2xl font-bold {{ $color }}">{{ $value }}</div>
+                <div class="mt-1 flex items-baseline gap-1.5">
+                    <span class="text-2xl font-bold {{ $color }}">{{ $value }}</span>
+                    @if ($percentage !== null)
+                        <span class="text-sm font-semibold text-slate-500">{{ $percentage }}%</span>
+                    @endif
+                </div>
+                @if ($percentage !== null)
+                    <div class="mt-0.5 text-[11px] text-slate-400">dari {{ $r['total'] }} tiket</div>
+                @endif
             </div>
         @endforeach
     </div>
+
+    @php
+        // Same hues as the matching ticket statuses, so CS reads cyan like "Proses CS", and so on.
+        $closureColors = [
+            'closed_cs' => 'bg-cyan-500',
+            'closed_helpdesk' => 'bg-blue-500',
+            'closed_teknisi' => 'bg-orange-500',
+            'closed_gamas' => 'bg-red-500',
+            'pending' => 'bg-purple-500',
+            'in_progress' => 'bg-slate-300',
+        ];
+    @endphp
+    <section class="card mb-6 p-5">
+        <div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="font-semibold">Penyelesaian Tiket</h2>
+            <p class="text-xs text-slate-500">Dari total {{ $r['total'] }} tiket periode ini. Tiket tutup dihitung untuk tim terjauh yang sempat menanganinya: pernah ke teknisi = Teknisi, dicek Helpdesk tanpa teknisi = Helpdesk, tidak sampai dicek Helpdesk = CS.</p>
+        </div>
+        @if ($r['total'] > 0)
+            <div class="mb-5 flex h-3 overflow-hidden rounded-full bg-slate-100" role="img" aria-label="Komposisi penyelesaian tiket">
+                @foreach ($r['closure'] as $row)
+                    @if ($row['count'] > 0)
+                        <div class="{{ $closureColors[$row['key']] }}" style="width: {{ $row['count'] / $r['total'] * 100 }}%" title="{{ $row['label'] }}: {{ $row['count'] }} ({{ $row['percentage'] }}%)"></div>
+                    @endif
+                @endforeach
+            </div>
+            <div class="grid gap-x-8 gap-y-3 sm:grid-cols-2">
+                @foreach ($r['closure'] as $row)
+                    <div class="flex items-center gap-3 text-sm">
+                        <span class="h-3 w-3 shrink-0 rounded-sm {{ $closureColors[$row['key']] }}"></span>
+                        <span class="flex-1 text-slate-700">{{ $row['label'] }}</span>
+                        <span class="font-semibold text-slate-900">{{ $row['percentage'] }}%</span>
+                        <span class="w-14 text-right text-xs text-slate-500">{{ $row['count'] }} tiket</span>
+                    </div>
+                @endforeach
+            </div>
+        @else
+            <p class="text-sm text-slate-400">Belum ada tiket pada periode ini.</p>
+        @endif
+    </section>
 
     <div class="grid gap-6 lg:grid-cols-2">
         <section class="card p-5">

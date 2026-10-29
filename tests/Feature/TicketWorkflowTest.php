@@ -9,6 +9,7 @@ use App\Models\TelegramLog;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
 use App\Models\User;
+use App\Services\DocumentationPhotoStore;
 use App\Services\MonthlyReportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -42,7 +43,7 @@ class TicketWorkflowTest extends TestCase
         $this->actingAs($this->cs)->post('/tickets', $overrides + [
             'customer_name' => 'Smoke Customer',
             'customer_phone' => '0812-3456-7890',
-            'category' => Ticket::CATEGORIES[0],
+            'category' => 'LOS Merah / Kabel Putus',
             'priority' => 'SEDANG',
             'complaint' => 'Internet mati sejak pagi',
         ])->assertSessionHasNoErrors();
@@ -69,8 +70,10 @@ class TicketWorkflowTest extends TestCase
         $this->assertSame('6281234567890', $ticket->customer_phone);
         $this->assertSame($this->cs->id, $ticket->created_by_id);
         $this->assertCount(1, $ticket->histories);
-        // The helpdesk group is not pinged while CS is still coordinating with the customer.
-        $this->assertSame(0, TelegramLog::query()->count());
+        // The new ticket is logged right away, while CS is still coordinating with the customer.
+        $created = TelegramLog::query()->sole()->message;
+        $this->assertStringContainsString('TIKET DIBUAT · PROSES CS', $created);
+        $this->assertStringContainsString("Dibuat oleh:</b> {$this->cs->name} (Customer Service)", $created);
 
         // Helpdesk cannot pick up the ticket and CS cannot ping the group before it is forwarded.
         $this->act($this->helpdesk, $ticket, 'KLAIM_HELPDESK')->assertSessionHasErrors('action');
@@ -84,7 +87,7 @@ class TicketWorkflowTest extends TestCase
         $ticket->refresh();
         $this->assertSame(TicketStatus::ANTRIAN_HELPDESK, $ticket->status);
         $this->assertSame('TERUSKAN_HELPDESK', $ticket->histories->last()->action->value);
-        $message = TelegramLog::query()->sole()->message;
+        $message = TelegramLog::query()->latest('id')->value('message');
         $this->assertStringContainsString('TIKET BARU MASUK', $message);
         $this->assertStringContainsString('Lampu LOS merah', $message);
 
@@ -102,7 +105,7 @@ class TicketWorkflowTest extends TestCase
 
         $ticket->refresh();
         $this->assertSame(TicketStatus::TUTUP, $ticket->status);
-        $this->assertSame(0, TelegramLog::query()->count());
+        $this->assertStringContainsString('PROSES CS', TelegramLog::query()->latest('id')->value('message'));
     }
 
     public function test_ticket_creation_is_validated_and_role_limited(): void
@@ -111,7 +114,7 @@ class TicketWorkflowTest extends TestCase
             ->assertSessionHasErrors(['customer_name', 'customer_phone', 'complaint', 'category', 'priority']);
 
         $this->actingAs($this->technician)->post('/tickets', [
-            'customer_name' => 'No', 'customer_phone' => '08123456789', 'category' => Ticket::CATEGORIES[0],
+            'customer_name' => 'No', 'customer_phone' => '08123456789', 'category' => 'LOS Merah / Kabel Putus',
             'priority' => 'SEDANG', 'complaint' => 'Not allowed',
         ])->assertForbidden();
     }
@@ -430,11 +433,35 @@ class TicketWorkflowTest extends TestCase
         $this->get($url, ['Range' => 'bytes=0-1023'])->assertStatus(206)->assertHeader('Content-Type', 'video/mp4');
     }
 
+    public function test_files_php_refused_get_a_readable_message(): void
+    {
+        $ticket = $this->createTicket();
+        $path = tempnam(sys_get_temp_dir(), 'upload');
+        $tooLarge = new UploadedFile($path, 'redaman.mp4', 'video/mp4', UPLOAD_ERR_INI_SIZE, true);
+
+        $this->act($this->helpdesk, $ticket, 'CATATAN_DOKUMENTASI', ['photos' => [$tooLarge]])
+            ->assertSessionHasErrors(['photos.0' => DocumentationPhotoStore::MESSAGES['photos.*.uploaded']]);
+    }
+
+    public function test_a_request_over_post_max_size_explains_the_limit(): void
+    {
+        $ticket = $this->createTicket();
+
+        $this->actingAs($this->helpdesk)
+            ->call('POST', "/tickets/{$ticket->ticket_number}/actions/CATATAN_DOKUMENTASI", server: ['CONTENT_LENGTH' => 1024 ** 4])
+            ->assertStatus(413)
+            ->assertSee('File terlalu besar');
+    }
+
     public function test_helpdesk_and_assigned_technician_can_correct_the_complaint_category(): void
     {
         $ticket = $this->createTicket(['category' => 'Internet Lambat / Ping Tinggi']);
         $this->act($this->cs, $ticket, 'UBAH_KATEGORI', ['category' => 'Lainnya'])->assertForbidden();
-        $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertSee('Ubah Kategori Kendala');
+        $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertSee('Ubah Kategori Kendala')
+            // The category is picked from a search field that starts on the ticket's current category.
+            ->assertSee('id="recategorize_category"', false)
+            ->assertSee('x-data="optionSearch(', false)
+            ->assertSee("'Internet Lambat \\/ Ping Tinggi', 'Pilih kategori yang ada di daftar')", false);
 
         $this->act($this->helpdesk, $ticket, 'UBAH_KATEGORI', ['category' => 'Internet Lambat / Ping Tinggi'])->assertSessionHasErrors('category');
         $this->act($this->helpdesk, $ticket, 'UBAH_KATEGORI', ['category' => 'Bukan kategori'])->assertSessionHasErrors('category');
@@ -464,7 +491,7 @@ class TicketWorkflowTest extends TestCase
         $this->act($this->cs, $ticket, 'SELESAI_EDUKASI_CS', ['notes' => 'Restart modem']);
 
         $this->act($this->helpdesk, $ticket, 'UBAH_KATEGORI', ['category' => 'Lainnya'])->assertSessionHasErrors('category');
-        $this->assertSame(Ticket::CATEGORIES[0], $ticket->refresh()->category);
+        $this->assertSame('LOS Merah / Kabel Putus', $ticket->refresh()->category);
     }
 
     public function test_technician_repair_report_can_include_photos(): void

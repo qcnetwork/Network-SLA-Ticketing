@@ -18,7 +18,7 @@ class ProfileController extends Controller
     {
         $data = $request->validate([
             'current_password' => ['required', 'current_password'],
-            'password' => ['required', 'confirmed', Password::min(6)],
+            'password' => ['required', 'confirmed', Password::defaults()],
         ], [
             'current_password.current_password' => 'Password saat ini salah',
         ]);
