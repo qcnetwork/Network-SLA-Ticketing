@@ -453,10 +453,11 @@ class TicketWorkflowTest extends TestCase
             ->assertSee('File terlalu besar');
     }
 
-    public function test_helpdesk_and_assigned_technician_can_correct_the_complaint_category(): void
+    public function test_cs_helpdesk_and_assigned_technician_can_correct_the_complaint_category(): void
     {
-        $ticket = $this->createTicket(['category' => 'Internet Lambat / Ping Tinggi']);
-        $this->act($this->cs, $ticket, 'UBAH_KATEGORI', ['category' => 'Lainnya'])->assertForbidden();
+        $ticket = $this->createTicket(['category' => 'Lainnya']);
+        $this->act($this->cs, $ticket, 'UBAH_KATEGORI', ['category' => 'Internet Lambat / Ping Tinggi'])->assertSessionHasNoErrors();
+        $this->assertSame('Internet Lambat / Ping Tinggi', $ticket->refresh()->category);
         $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertSee('Ubah Kategori Kendala')
             // The category is picked from a search field that starts on the ticket's current category.
             ->assertSee('id="recategorize_category"', false)

@@ -48,8 +48,8 @@ enum TicketAction: string
             self::MULAI_PERBAIKAN, self::LAPOR_PERBAIKAN_SELESAI => [Role::TEKNISI, Role::HELPDESK, Role::SPV],
             self::SELESAI_EDUKASI_CS, self::TERUSKAN_HELPDESK, self::KONFIRMASI_NORMAL, self::KONFIRMASI_TERKENDALA, self::CATATAN_URGENSI_CS => [Role::CS, Role::SPV],
             self::CATATAN_DOKUMENTASI => [Role::CS, Role::HELPDESK, Role::TEKNISI, Role::SPV],
-            // The real fault often only shows up once Helpdesk or the technician checks the line.
-            self::UBAH_KATEGORI => [Role::HELPDESK, Role::TEKNISI, Role::SPV],
+            // CS may fix a mis-picked category; the real fault often only shows up once Helpdesk or the technician checks the line.
+            self::UBAH_KATEGORI => [Role::CS, Role::HELPDESK, Role::TEKNISI, Role::SPV],
             // Whoever talks to the customer can complete their details, e.g. a shareloc sent after the ticket was made.
             self::UBAH_DATA_PELANGGAN => [Role::CS, Role::HELPDESK, Role::SPV],
             self::GABUNG_GAMAS, self::LEPAS_GAMAS => [Role::CS, Role::HELPDESK, Role::SPV],
