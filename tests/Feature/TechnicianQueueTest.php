@@ -132,4 +132,15 @@ class TechnicianQueueTest extends TestCase
         $this->act($this->helpdesk, $waiting, 'ANTRI_TEKNISI', ['notes' => 'Belum dicek'])->assertSessionHasErrors('action');
         $this->assertSame(TicketStatus::ANTRIAN_HELPDESK, $waiting->fresh()->status);
     }
+
+    public function test_a_recheck_can_go_straight_to_pending_visit(): void
+    {
+        $ticket = Ticket::factory()->status(TicketStatus::CEK_ULANG)->create();
+
+        $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertOk()
+            ->assertSee('Pending Kunjungan')->assertSee(route('tickets.perform', [$ticket, 'ANTRI_TEKNISI']));
+
+        $this->act($this->helpdesk, $ticket, 'ANTRI_TEKNISI', ['notes' => 'Masih LOS, perlu cek ODP besok'])->assertSessionHasNoErrors();
+        $this->assertSame(TicketStatus::ANTRIAN_TEKNISI, $ticket->fresh()->status);
+    }
 }

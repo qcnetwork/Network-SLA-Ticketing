@@ -311,13 +311,18 @@
                         </datalist>
                         <x-field-error name="modem" />
                     </div>
-                    <div class="mb-4 grid grid-cols-2 gap-2">
+                    <div @class(['mb-4 grid gap-2', 'grid-cols-3' => $canQueue, 'grid-cols-2' => ! $canQueue])>
                         <button type="button" @click="mode = 'remote'" :class="mode === 'remote' ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 text-slate-600'" class="rounded-lg border-2 px-2 py-2 text-xs font-semibold">
                             Bisa Selesai Remote
                         </button>
                         <button type="button" @click="mode = 'teknisi'" :class="mode === 'teknisi' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-slate-200 text-slate-600'" class="rounded-lg border-2 px-2 py-2 text-xs font-semibold">
                             Perlu Teknisi
                         </button>
+                        @if ($canQueue)
+                            <button type="button" @click="mode = 'pending'" :class="mode === 'pending' ? 'border-yellow-500 bg-yellow-50 text-yellow-700' : 'border-slate-200 text-slate-600'" class="rounded-lg border-2 px-2 py-2 text-xs font-semibold">
+                                Pending Kunjungan
+                            </button>
+                        @endif
                     </div>
 
                     <form method="POST" action="{{ $actionUrl(A::SELESAI_REMOTE) }}" x-show="mode === 'remote'" class="space-y-3">
@@ -344,13 +349,15 @@
 
                     @if ($canQueue)
                         {{-- For when a visit is needed but every technician's route is already full today. --}}
-                        <form method="POST" action="{{ $actionUrl(A::ANTRI_TEKNISI) }}" x-show="mode === 'teknisi'" x-cloak class="mt-4 space-y-3 border-t border-slate-100 pt-4">
+                        <form method="POST" action="{{ $actionUrl(A::ANTRI_TEKNISI) }}" x-show="mode === 'pending'" x-cloak class="space-y-3">
                             @csrf
                             <input type="hidden" name="modem" :value="modem">
-                            <p class="text-sm font-medium text-slate-700">Teknisi belum tersedia?</p>
-                            <p class="text-xs text-slate-500">Masukkan ke Antrian Teknisi dulu. Teknisi bisa ditugaskan nanti dari tiket ini.</p>
-                            <textarea name="notes" rows="2" class="input" required placeholder="Kendala yang perlu dicek di lokasi, contoh: LOS merah, perlu cek ODP"></textarea>
-                            <button class="btn-secondary w-full"><i data-lucide="hourglass" class="h-4 w-4 text-yellow-600"></i>Masukkan Antrian Teknisi</button>
+                            <p class="text-xs text-slate-500">Perlu kunjungan teknisi, tapi belum ada teknisi yang tersedia. Tiket masuk Antrian Teknisi dan bisa ditugaskan nanti dari tiket ini.</p>
+                            <div>
+                                <label class="label" for="queue_notes">Kendala yang perlu dicek di lokasi</label>
+                                <textarea id="queue_notes" name="notes" rows="3" class="input" required placeholder="Contoh: LOS merah, perlu cek ODP. Pelanggan bisa dikunjungi besok pagi"></textarea>
+                            </div>
+                            <button class="btn-warning w-full"><i data-lucide="hourglass" class="h-4 w-4"></i>Masukkan Antrian Teknisi</button>
                         </form>
                     @endif
                 </div>

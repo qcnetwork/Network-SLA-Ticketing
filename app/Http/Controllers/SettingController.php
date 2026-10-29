@@ -85,7 +85,7 @@ class SettingController extends Controller
         $path = $backup->create();
         Log::info('Database backup downloaded', ['user' => $request->user()->username, 'ip' => $request->ip()]);
 
-        return response()->download($path, basename($path), ['Content-Type' => 'application/vnd.sqlite3'])->deleteFileAfterSend();
+        return response()->download($path, basename($path), ['Content-Type' => DatabaseBackup::contentType($path)])->deleteFileAfterSend();
     }
 
     /**
