@@ -63,6 +63,7 @@ Route::middleware('auth')->group(function () {
     Route::middleware('role:HELPDESK,SPV,CS')->group(function () {
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
+        Route::get('/reports/heatmap', [ReportController::class, 'heatmap'])->name('reports.heatmap');
     });
 
     Route::middleware('role:HELPDESK,SPV')->group(function () {

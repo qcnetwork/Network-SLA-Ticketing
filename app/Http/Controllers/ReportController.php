@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Exports\MonthlyReportExport;
 use App\Models\TelegramLog;
+use App\Models\Ticket;
+use App\Services\ComplaintMapService;
 use App\Services\MonthlyReportService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -31,6 +33,26 @@ class ReportController extends Controller
             : sprintf('Laporan_Ticketing_%d_%02d.xlsx', $report['year'], $report['month']);
 
         return Excel::download(new MonthlyReportExport($report), $filename);
+    }
+
+    /**
+     * Heatmap of where complaints come from, over ?from=&to= (the last 90 days by default).
+     */
+    public function heatmap(Request $request, ComplaintMapService $map): View
+    {
+        $data = $request->validate([
+            'from' => ['nullable', 'date_format:Y-m-d'],
+            'to' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:from'],
+            'category' => ['nullable', 'string', 'max:100'],
+        ]);
+        $to = isset($data['to']) ? Carbon::parse($data['to']) : now();
+        $from = isset($data['from']) ? Carbon::parse($data['from']) : $to->copy()->subDays(89);
+
+        return view('reports.heatmap', [
+            'map' => $map->build($from, $to, $data['category'] ?? null),
+            // From the tickets, so categories retired since still filter their old tickets.
+            'categories' => Ticket::query()->distinct()->orderBy('category')->pluck('category'),
+        ]);
     }
 
     public function telegramLogs(): View

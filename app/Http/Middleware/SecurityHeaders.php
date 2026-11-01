@@ -15,12 +15,13 @@ class SecurityHeaders
     /**
      * Alpine.js evaluates its directives with `new Function`, hence 'unsafe-eval'. Inline styles
      * cover Alpine's :style bindings. The only third-party content is the Google Maps embed on a
-     * ticket; blob: and data: are the photo picker previews and the badged tab icon.
+     * ticket and the OpenStreetMap tiles under the complaint heatmap; blob: and data: are the photo
+     * picker previews and the badged tab icon.
      */
     private const CONTENT_SECURITY_POLICY = "default-src 'self'; "
         ."script-src 'self' 'unsafe-eval'; "
         ."style-src 'self' 'unsafe-inline'; "
-        ."img-src 'self' data: blob:; "
+        ."img-src 'self' data: blob: https://tile.openstreetmap.org; "
         ."media-src 'self' blob:; "
         .'frame-src https://maps.google.com https://www.google.com; '
         ."connect-src 'self'; "

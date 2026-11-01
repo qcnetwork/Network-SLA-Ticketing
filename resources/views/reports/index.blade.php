@@ -28,6 +28,7 @@
             <div class="mt-3 inline-flex rounded-lg border border-slate-200 bg-white p-1 text-sm font-semibold">
                 <a href="{{ route('reports.index', ['period' => 'daily']) }}" @class(['rounded-md px-3 py-1', 'bg-indigo-600 text-white' => $isDaily, 'text-slate-600 hover:text-indigo-700' => ! $isDaily])>Harian</a>
                 <a href="{{ route('reports.index') }}" @class(['rounded-md px-3 py-1', 'bg-indigo-600 text-white' => ! $isDaily, 'text-slate-600 hover:text-indigo-700' => $isDaily])>Bulanan</a>
+                <a href="{{ route('reports.heatmap') }}" class="rounded-md px-3 py-1 text-slate-600 hover:text-indigo-700">Peta Area</a>
             </div>
         </div>
         <form method="GET" action="{{ route('reports.index') }}" class="flex flex-wrap items-end gap-2">
