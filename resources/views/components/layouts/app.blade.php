@@ -14,6 +14,8 @@
     $more = array_values(array_filter([
         $user->hasRole(Role::HELPDESK, Role::SPV, Role::CS)
             ? ['route' => 'reports.index', 'label' => 'Laporan', 'icon' => 'bar-chart-3', 'active' => 'reports.*', 'group' => 'Pantau'] : null,
+        $user->hasRole(Role::HELPDESK, Role::SPV, Role::CS)
+            ? ['route' => 'customers.index', 'label' => 'Pelanggan', 'icon' => 'user', 'active' => 'customers.*', 'group' => 'Pantau'] : null,
         $user->hasRole(Role::HELPDESK, Role::SPV)
             ? ['route' => 'telegram.logs', 'label' => 'Feed Telegram', 'icon' => 'send', 'active' => 'telegram.*', 'group' => 'Pantau'] : null,
         $user->hasRole(Role::SPV)

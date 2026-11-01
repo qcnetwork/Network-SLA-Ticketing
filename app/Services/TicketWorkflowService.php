@@ -7,6 +7,7 @@ use App\Enums\Role;
 use App\Enums\TicketAction;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
+use App\Models\Customer;
 use App\Models\Incident;
 use App\Models\Setting;
 use App\Models\Ticket;
@@ -57,10 +58,16 @@ class TicketWorkflowService
                 }
             }
             $status = $incident ? TicketStatus::GAMAS : TicketStatus::PROSES_CS;
+            $code = trim((string) ($data['customer_id'] ?? ''));
+            $phone = PhoneNumber::normalize($data['customer_phone']);
 
             $ticket = Ticket::create([
                 'ticket_number' => $this->numbers->next(),
-                'customer_id' => $data['customer_id'] ?? null ?: 'CUST-'.random_int(1000, 9999),
+                // A known ID keeps the customer's own spelling of it, so their tickets stay together. Without
+                // an ID, a customer with the same name and number is the same person; anyone else is new.
+                'customer_id' => $code !== ''
+                    ? (Customer::query()->withCode($code)->value('code') ?? $code)
+                    : (Customer::query()->withNameAndPhone($data['customer_name'], $phone)->latest('updated_at')->value('code') ?? $this->newCustomerCode()),
                 'customer_name' => $data['customer_name'],
                 'customer_phone' => PhoneNumber::normalize($data['customer_phone']),
                 'customer_address' => $data['customer_address'] ?? null,
@@ -73,6 +80,7 @@ class TicketWorkflowService
                 'incident_id' => $incident?->id,
                 'created_by_id' => $actor->id,
             ]);
+            $this->rememberCustomer($ticket);
 
             $ticket->histories()->create([
                 'user_id' => $actor->id,
@@ -398,11 +406,12 @@ class TicketWorkflowService
 
             $before = $ticket->only(['customer_name', 'customer_phone', 'customer_id', 'customer_address']);
             $hadLocation = $ticket->hasLocation();
+            $code = trim((string) ($data['customer_id'] ?? ''));
             $ticket->fill([
                 'customer_name' => trim($data['customer_name']),
                 'customer_phone' => PhoneNumber::normalize($data['customer_phone']),
-                // A blank ID keeps the one the ticket already has.
-                'customer_id' => trim((string) ($data['customer_id'] ?? '')) ?: $ticket->customer_id,
+                // A blank ID keeps the one the ticket already has; a known one keeps the customer's spelling.
+                'customer_id' => $code !== '' ? (Customer::query()->withCode($code)->value('code') ?? $code) : $ticket->customer_id,
                 'customer_address' => $address,
             ]);
             if ($addressChanged) {
@@ -425,6 +434,7 @@ class TicketWorkflowService
             }
 
             $ticket->save();
+            $this->rememberCustomer($ticket);
             $ticket->histories()->create([
                 'user_id' => $actor->id,
                 'actor_name' => $actor->name,
@@ -445,6 +455,41 @@ class TicketWorkflowService
         }
 
         return $ticket;
+    }
+
+    /**
+     * Keep the customer directory up to date with the details last written on a ticket, so the
+     * next ticket for this customer can be filled from it. An empty address keeps the one on file.
+     */
+    private function rememberCustomer(Ticket $ticket): void
+    {
+        if (trim((string) $ticket->customer_id) === '') {
+            return;
+        }
+        $customer = Customer::query()->withCode($ticket->customer_id)->lockForUpdate()->first()
+            ?? new Customer(['code' => $ticket->customer_id]);
+
+        $customer->fill(['name' => $ticket->customer_name, 'phone' => $ticket->customer_phone]);
+        if ($ticket->customer_address) {
+            $customer->fill([
+                'address' => $ticket->customer_address,
+                'latitude' => $ticket->latitude,
+                'longitude' => $ticket->longitude,
+            ]);
+        }
+        $customer->save();
+    }
+
+    /**
+     * An ID for a customer CS did not give one, unused by any customer or ticket.
+     */
+    private function newCustomerCode(): string
+    {
+        do {
+            $code = 'CUST-'.random_int(100000, 999999);
+        } while (Customer::query()->withCode($code)->exists() || Ticket::query()->where('customer_id', $code)->exists());
+
+        return $code;
     }
 
     /**

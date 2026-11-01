@@ -69,7 +69,8 @@ class TicketCategoryTest extends TestCase
             ->assertSee('x-data="optionSearch(', false)
             ->assertSee('<input type="hidden" name="category" :value="value">', false)
             ->assertSee('Internet Lambat')
-            ->assertDontSee('Lainnya');
+            // Checked on the list itself: "Lainnya" is also the label of the navbar's overflow menu.
+            ->assertViewHas('categories', fn ($categories) => collect($categories)->doesntContain('Lainnya'));
 
         // The server refuses anything outside the list, whatever the browser sends.
         $this->post('/tickets', [

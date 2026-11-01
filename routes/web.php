@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\ModemTypeController;
@@ -47,7 +48,12 @@ Route::middleware('auth')->group(function () {
     Route::delete('/tickets/{ticket}/shares/{share}', [TicketShareController::class, 'destroy'])
         ->scopeBindings()->name('tickets.shares.destroy');
 
-    Route::get('/arsip', [ArchiveController::class, 'index'])->middleware('role:HELPDESK,SPV,TEKNISI')->name('archive.index');
+    Route::middleware('role:CS,HELPDESK,SPV')->group(function () {
+        Route::get('/pelanggan', [CustomerController::class, 'index'])->name('customers.index');
+        Route::get('/pelanggan/cari', [CustomerController::class, 'search'])->name('customers.search');
+    });
+
+    Route::get('/arsip',[ArchiveController::class, 'index'])->middleware('role:HELPDESK,SPV,TEKNISI')->name('archive.index');
 
     Route::get('/gamas', [IncidentController::class, 'index'])->name('incidents.index');
     Route::get('/gamas/create', [IncidentController::class, 'create'])->name('incidents.create');

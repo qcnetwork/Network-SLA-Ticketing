@@ -8,6 +8,7 @@ use App\Enums\Role;
 use App\Enums\TicketAction;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
+use App\Models\Customer;
 use App\Models\Incident;
 use App\Models\ModemType;
 use App\Models\Ticket;
@@ -30,11 +31,23 @@ class TicketController extends Controller
 {
     public function __construct(private TicketWorkflowService $workflow) {}
 
-    public function create(): View
+    public function create(Request $request): View
     {
         $this->authorize('create', Ticket::class);
+        // ?customer=ID, from the customer list: start the form filled with that customer.
+        $customer = $request->filled('customer')
+            ? Customer::query()->withCode((string) $request->query('customer'))->withCount('tickets')->first()
+            : null;
 
         return view('tickets.create', [
+            'customer' => $customer ? [
+                'code' => $customer->code,
+                'name' => $customer->name,
+                'phone' => $customer->phone,
+                'address' => $customer->address,
+                'tickets' => $customer->tickets_count,
+                'open_ticket' => null,
+            ] : null,
             'categories' => TicketCategory::activeNames(),
             'priorities' => TicketPriority::cases(),
             'openIncidents' => Incident::query()->open()->latest()->get(),
