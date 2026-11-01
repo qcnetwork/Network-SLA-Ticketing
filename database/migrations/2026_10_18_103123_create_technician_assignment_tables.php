@@ -33,6 +33,13 @@ return new class extends Migration
             );
         }
 
+        // The foreign key goes first: MySQL refuses to drop an index a foreign key still relies on.
+        foreach (array_keys(self::PIVOTS) as $owner) {
+            Schema::table($owner, function (Blueprint $table) {
+                $table->dropForeign(['technician_id']);
+            });
+        }
+
         Schema::table('tickets', function (Blueprint $table) {
             $table->dropIndex(['technician_id', 'status']);
         });
@@ -42,7 +49,7 @@ return new class extends Migration
 
         foreach (array_keys(self::PIVOTS) as $owner) {
             Schema::table($owner, function (Blueprint $table) {
-                $table->dropConstrainedForeignId('technician_id');
+                $table->dropColumn('technician_id');
             });
         }
     }

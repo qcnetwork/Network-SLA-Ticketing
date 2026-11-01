@@ -50,6 +50,15 @@
     @apply rounded-xl border border-slate-200 bg-white shadow-sm;
 }
 
+/* Still scrollable (touchpad, Shift+wheel, touch); used where a scrollbar is shown elsewhere instead. */
+@utility scrollbar-none {
+    scrollbar-width: none;
+
+    &::-webkit-scrollbar {
+        display: none;
+    }
+}
+
 @utility badge {
     @apply inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
 }

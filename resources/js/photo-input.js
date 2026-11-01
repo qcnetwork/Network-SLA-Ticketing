@@ -3,9 +3,15 @@
  * dropped onto the zone, or pasted (Ctrl+V) anywhere inside the surrounding form,
  * e.g. an image copied straight from WhatsApp. Every file is synced back into the
  * real <input type="file"> so the form submits normally.
+ *
+ * `limits` are the byte limits from DocumentationPhotoStore::limits(), already lowered to
+ * PHP's upload settings, so an oversized file is refused here before the typed note is lost.
  */
-export default (max = 5) => ({
+const MB = 1024 * 1024;
+
+export default (max = 5, limits = { photo: 5 * MB, video: 50 * MB, total: 0 }) => ({
     max,
+    limits,
     photos: [],
     message: '',
 
@@ -52,8 +58,16 @@ export default (max = 5) => ({
             }
 
             const isVideo = file.type.startsWith('video/');
-            if (file.size > (isVideo ? 50 : 5) * 1024 * 1024) {
-                this.message = isVideo ? `Video ${file.name} melebihi 50 MB.` : `Foto ${file.name} melebihi 5 MB.`;
+            const limit = isVideo ? this.limits.video : this.limits.photo;
+            if (file.size > limit) {
+                this.message = `${isVideo ? 'Video' : 'Foto'} ${file.name} melebihi ${Math.floor(limit / MB)} MB.`;
+                continue;
+            }
+
+            // Leave headroom for the note and other form fields sent in the same request.
+            const total = this.photos.reduce((sum, photo) => sum + photo.file.size, file.size);
+            if (this.limits.total && total > this.limits.total - MB) {
+                this.message = `Total lampiran melebihi ${Math.floor(this.limits.total / MB)} MB per kiriman. Kirim sisanya di catatan berikutnya.`;
                 continue;
             }
 

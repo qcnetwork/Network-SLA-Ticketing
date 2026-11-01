@@ -106,7 +106,7 @@
                                     @if ($canDetach)
                                         <td class="py-2 text-right">
                                             @if ($ticket->status === S::GAMAS)
-                                                <form method="POST" action="{{ route('incidents.tickets.detach', [$incident, $ticket]) }}" onsubmit="return confirm('Lepas tiket {{ $ticket->ticket_number }} dari gamas? Tiket akan kembali ke Antrian Helpdesk.')">
+                                                <form method="POST" action="{{ route('incidents.tickets.detach', [$incident, $ticket]) }}" data-confirm="Lepas tiket {{ $ticket->ticket_number }} dari gamas? Tiket akan kembali ke Antrian Helpdesk.">
                                                     @csrf
                                                     @method('DELETE')
                                                     <button class="text-xs font-semibold text-rose-600 hover:underline">Lepas</button>
@@ -136,18 +136,7 @@
                                 <p class="mt-1 text-sm whitespace-pre-line wrap-break-word text-slate-600">{{ $update->notes }}</p>
                             @endif
                             @if ($update->attachments->isNotEmpty())
-                                <div class="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                                    @foreach ($update->attachments as $attachment)
-                                        @php($photoUrl = route('incidents.attachment', [$incident, $attachment]))
-                                        @if ($attachment->isVideo())
-                                            <video src="{{ $photoUrl }}" controls preload="metadata" playsinline title="{{ $attachment->original_name }}" class="aspect-square w-full rounded-lg border border-slate-200 bg-slate-900 object-cover"></video>
-                                        @else
-                                            <a href="{{ $photoUrl }}" target="_blank" rel="noopener" title="{{ $attachment->original_name }}">
-                                                <img src="{{ $photoUrl }}" alt="{{ $attachment->original_name }}" loading="lazy" class="aspect-square w-full rounded-lg border border-slate-200 object-cover hover:opacity-90">
-                                            </a>
-                                        @endif
-                                    @endforeach
-                                </div>
+                                <x-attachment-grid :attachments="$update->attachments" route="incidents.attachment" :parent="$incident" />
                             @endif
                         </li>
                     @endforeach
@@ -192,7 +181,7 @@
 
             @if ($canResolve)
                 <form method="POST" action="{{ $actionUrl(IA::GAMAS_SELESAI) }}" enctype="multipart/form-data" class="card space-y-3 p-5"
-                    onsubmit="return confirm('Selesaikan gamas? {{ $waiting }} tiket pelanggan akan pindah ke Menunggu Konfirmasi.')">
+                    data-confirm="Selesaikan gamas? {{ $waiting }} tiket pelanggan akan pindah ke Menunggu Konfirmasi.">
                     @csrf
                     <h3 class="font-semibold">Gamas Selesai</h3>
                     <p class="text-sm text-slate-500">{{ $waiting }} tiket pelanggan akan pindah ke <b>Menunggu Konfirmasi</b> untuk dicek CS satu per satu.</p>

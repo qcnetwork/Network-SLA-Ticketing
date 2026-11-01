@@ -24,11 +24,18 @@ class TicketAttachment extends Model
 
     /**
      * Serve the file inline with byte-range support, which browsers need to play and seek videos.
+     * The sandbox policy keeps an uploaded file from ever running script on the app's origin,
+     * even if a browser were to sniff it as HTML.
      */
     public function inlineResponse(): BinaryFileResponse
     {
-        return response()->file(Storage::disk(self::DISK)->path($this->path), ['Content-Type' => $this->mime_type])
-            ->setContentDisposition('inline', $this->original_name, Str::ascii(str_replace(['/', '\\', '%'], '-', $this->original_name)));
+        // Symfony rejects a fallback name with anything outside printable ASCII, which would make the file unviewable.
+        $fallback = preg_replace('/[^\x20-\x7e]|[%\/\\\\"]/', '_', Str::ascii($this->original_name)) ?: 'lampiran';
+
+        return response()->file(Storage::disk(self::DISK)->path($this->path), [
+            'Content-Type' => $this->mime_type,
+            'Content-Security-Policy' => "sandbox; default-src 'none'; img-src 'self'; media-src 'self'",
+        ])->setContentDisposition('inline', $this->original_name, $fallback);
     }
 
     public function ticket(): BelongsTo

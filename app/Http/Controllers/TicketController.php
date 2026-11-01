@@ -4,12 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Enums\IncidentAction;
 use App\Enums\IncidentStatus;
+use App\Enums\Role;
 use App\Enums\TicketAction;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Incident;
+use App\Models\ModemType;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
+use App\Models\TicketCategory;
+use App\Models\TicketShare;
 use App\Models\User;
 use App\Services\DocumentationPhotoStore;
 use App\Services\IncidentWorkflowService;
@@ -31,7 +35,7 @@ class TicketController extends Controller
         $this->authorize('create', Ticket::class);
 
         return view('tickets.create', [
-            'categories' => Ticket::CATEGORIES,
+            'categories' => TicketCategory::activeNames(),
             'priorities' => TicketPriority::cases(),
             'openIncidents' => Incident::query()->open()->latest()->get(),
         ]);
@@ -46,7 +50,7 @@ class TicketController extends Controller
             'customer_phone' => ['required', 'string', 'max:30', 'regex:/^[0-9+\-\s()]{8,}$/'],
             'customer_id' => ['nullable', 'string', 'max:50'],
             'customer_address' => ['nullable', 'string', 'max:255'],
-            'category' => ['required', Rule::in(Ticket::CATEGORIES)],
+            'category' => ['required', Rule::in(TicketCategory::activeNames())],
             'priority' => ['required', Rule::enum(TicketPriority::class)],
             'complaint' => ['required', 'string', 'max:2000'],
             'incident_id' => ['nullable', Rule::exists('incidents', 'id')->whereIn('status', array_map(fn (IncidentStatus $status) => $status->value, IncidentStatus::open()))],
@@ -72,8 +76,16 @@ class TicketController extends Controller
         $this->authorize('view', $ticket);
 
         $ticket->load(['creator', 'helpdesk', 'technicians', 'incident', 'histories.user', 'histories.attachments']);
+        $user = request()->user();
+        $isCrew = $ticket->status === TicketStatus::PERBAIKAN && $ticket->isAssignedTo($user);
 
         return view('tickets.show', [
+            'shares' => $user->can('share', $ticket)
+                ? $ticket->shares()->active()->with(['user', 'sharedBy'])->orderBy('expires_at')->get() : collect(),
+            // Set when a technician opened the ticket through the archive rather than as its crew.
+            'myShare' => $user->role === Role::TEKNISI && ! $isCrew
+                ? $ticket->shares()->active()->where('user_id', $user->id)->first() : null,
+            'shareDurations' => TicketShare::DURATIONS,
             'ticket' => $ticket,
             'technicians' => User::technicians()->get(),
             'flow' => [
@@ -85,7 +97,8 @@ class TicketController extends Controller
                 TicketStatus::TUTUP,
             ],
             'urgencyLevels' => TicketWorkflowService::URGENCY_LEVELS,
-            'modemSuggestions' => Ticket::MODEM_SUGGESTIONS,
+            'modemSuggestions' => ModemType::activeNames(),
+            'categories' => TicketCategory::activeNames(),
             'waTypes' => WhatsAppTemplateService::TYPES,
             'openIncidents' => Incident::query()->open()->latest()->get(),
             'canJoinIncident' => $ticket->incident_id === null
@@ -107,7 +120,7 @@ class TicketController extends Controller
             'modem' => ['nullable', 'string', 'max:100'],
             'urgency_level' => ['nullable', Rule::in(TicketWorkflowService::URGENCY_LEVELS)],
             'upgrade_priority' => ['nullable', 'boolean'],
-            'category' => ['nullable', Rule::in(Ticket::CATEGORIES)],
+            'category' => ['nullable', Rule::in(TicketCategory::activeNames())],
             ...DocumentationPhotoStore::rules(),
         ], DocumentationPhotoStore::MESSAGES);
 
@@ -119,6 +132,29 @@ class TicketController extends Controller
         }
 
         return redirect()->route('tickets.show', $ticket)->with('success', "{$action->label()} berhasil disimpan");
+    }
+
+    public function updateCustomer(Request $request, Ticket $ticket): RedirectResponse
+    {
+        $this->authorize('perform', [$ticket, TicketAction::UBAH_DATA_PELANGGAN]);
+
+        $data = $request->validate([
+            'customer_name' => ['required', 'string', 'max:150'],
+            'customer_phone' => ['required', 'string', 'max:30', 'regex:/^[0-9+\-\s()]{8,}$/'],
+            'customer_id' => ['nullable', 'string', 'max:50'],
+            'customer_address' => ['nullable', 'string', 'max:255'],
+        ], [
+            'customer_phone.regex' => 'Nomor WhatsApp tidak valid',
+        ], [
+            'customer_name' => 'nama pelanggan',
+            'customer_phone' => 'nomor WhatsApp',
+        ]);
+
+        $ticket = $this->workflow->updateCustomer($ticket, $data, $request->user());
+
+        return redirect()->route('tickets.show', $ticket)->with('success', $ticket->hasLocation()
+            ? 'Data pelanggan berhasil diperbarui. Titik lokasi tersimpan.'
+            : 'Data pelanggan berhasil diperbarui');
     }
 
     public function attachment(Ticket $ticket, TicketAttachment $attachment): BinaryFileResponse

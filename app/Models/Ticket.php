@@ -6,6 +6,9 @@ use App\Enums\Role;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Concerns\HasTechnicians;
+use App\Services\TelegramTicketList;
+use App\Services\TicketNotifier;
+use App\Support\GeoLocation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -16,29 +19,6 @@ use Illuminate\Support\Carbon;
 class Ticket extends Model
 {
     use HasFactory, HasTechnicians;
-
-    public const CATEGORIES = [
-        'LOS Merah / Kabel Putus',
-        'Internet Mati Total (LOS Hijau tapi RTO)',
-        'Internet Lambat / Ping Tinggi',
-        'WiFi Sering Putus / Jangkauan Sinyal',
-        'Router / Modem Rusak (Mati Total)',
-        'Lainnya',
-    ];
-
-    /**
-     * Common ONT/modem types, offered as suggestions; Helpdesk can still type any other model.
-     */
-    public const MODEM_SUGGESTIONS = [
-        'ZTE F609',
-        'ZTE F660',
-        'ZTE F670L',
-        'Huawei HG8245H',
-        'Huawei HG8245H5',
-        'Huawei EG8145V5',
-        'Fiberhome AN5506-04-F',
-        'Fiberhome HG6243C',
-    ];
 
     /**
      * A ticket waiting for customer confirmation closes itself after this long without a response.
@@ -53,6 +33,28 @@ class Ticket extends Model
 
     protected $guarded = ['id'];
 
+    /**
+     * Every change that moves a ticket between nodes, from any workflow, refreshes the Telegram master list
+     * and notifies the roles that work on the node it reached.
+     */
+    protected static function booted(): void
+    {
+        static::saved(function (Ticket $ticket) {
+            if ($ticket->wasRecentlyCreated || $ticket->wasChanged(['status', 'customer_name'])) {
+                TelegramTicketList::queueRefresh();
+            }
+        });
+        static::deleted(fn () => TelegramTicketList::queueRefresh());
+
+        // created/updated rather than saved: wasRecentlyCreated stays true for later saves in the same request.
+        static::created(fn (Ticket $ticket) => app(TicketNotifier::class)->statusChanged($ticket, auth()->user()));
+        static::updated(function (Ticket $ticket) {
+            if ($ticket->wasChanged('status')) {
+                app(TicketNotifier::class)->statusChanged($ticket, auth()->user());
+            }
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -61,7 +63,19 @@ class Ticket extends Model
             'repair_started_at' => 'datetime',
             'resolved_at' => 'datetime',
             'closed_at' => 'datetime',
+            'latitude' => 'float',
+            'longitude' => 'float',
         ];
+    }
+
+    public function hasLocation(): bool
+    {
+        return $this->latitude !== null && $this->longitude !== null;
+    }
+
+    public function mapsUrl(): ?string
+    {
+        return $this->hasLocation() ? GeoLocation::mapsUrl($this->latitude, $this->longitude) : null;
     }
 
     public function getRouteKeyName(): string
@@ -92,6 +106,24 @@ class Ticket extends Model
     public function attachments(): HasMany
     {
         return $this->hasMany(TicketAttachment::class)->orderBy('id');
+    }
+
+    public function shares(): HasMany
+    {
+        return $this->hasMany(TicketShare::class);
+    }
+
+    public function isSharedWith(User $user): bool
+    {
+        return $this->shares()->active()->where('user_id', $user->id)->exists();
+    }
+
+    /**
+     * Tickets currently shared with the user through the archive.
+     */
+    public function scopeSharedWith(Builder $query, User $user): Builder
+    {
+        return $query->whereHas('shares', fn (Builder $share) => $share->active()->where('user_id', $user->id));
     }
 
     /**

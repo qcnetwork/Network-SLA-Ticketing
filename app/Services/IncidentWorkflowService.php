@@ -7,7 +7,6 @@ use App\Enums\IncidentStatus;
 use App\Enums\Role;
 use App\Enums\TicketAction;
 use App\Enums\TicketStatus;
-use App\Jobs\SendTelegramMessage;
 use App\Models\Incident;
 use App\Models\IncidentUpdate;
 use App\Models\Setting;
@@ -32,13 +31,16 @@ class IncidentWorkflowService
         TicketStatus::PROSES_CS,
         TicketStatus::ANTRIAN_HELPDESK,
         TicketStatus::HELPDESK_CEK,
+        TicketStatus::ANTRIAN_TEKNISI,
         TicketStatus::PERBAIKAN,
         TicketStatus::CEK_ULANG,
     ];
 
     public function __construct(
         private TelegramService $telegram,
+        private TelegramOutbox $outbox,
         private DocumentationPhotoStore $photoStore,
+        private TicketNotifier $notifier,
     ) {}
 
     /**
@@ -62,6 +64,7 @@ class IncidentWorkflowService
 
             $this->record($incident, IncidentAction::GAMAS_DIBUAT, $actor, $incident->cause ?? 'Gangguan massal dibuka.');
             $this->attachTickets($incident, $ticketIds, $actor);
+            $this->notifier->gamasOpened($incident, $actor);
 
             return $incident;
         });
@@ -287,7 +290,7 @@ class IncidentWorkflowService
     {
         $incident->loadMissing('technicians')->loadCount('tickets');
 
-        SendTelegramMessage::dispatchAfterResponse(
+        $this->outbox->push(
             $this->telegram->incidentMessage($incident, $action, $notes, $actor->name),
             ['incident' => $incident->incident_number, 'action' => $action->value],
         );

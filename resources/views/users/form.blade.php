@@ -46,8 +46,8 @@
                 </div>
                 <div>
                     <label class="label" for="password">{{ $user->exists ? 'Password Baru' : 'Password' }}</label>
-                    <input id="password" name="password" type="password" class="input" @required(! $user->exists) minlength="6" autocomplete="new-password"
-                           placeholder="{{ $user->exists ? 'Kosongkan jika tidak diganti' : 'Minimal 6 karakter' }}">
+                    <input id="password" name="password" type="password" class="input" @required(! $user->exists) minlength="8" autocomplete="new-password"
+                           placeholder="{{ $user->exists ? 'Kosongkan jika tidak diganti' : 'Minimal 8 karakter, huruf dan angka' }}">
                     <x-field-error name="password" />
                 </div>
                 @if ($user->exists)

@@ -14,9 +14,11 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->call([
-            UserSeeder::class,
-            TicketSeeder::class,
-        ]);
+        $this->call(UserSeeder::class);
+
+        // Sample tickets would mix fake customers into real reports.
+        if (! app()->isProduction()) {
+            $this->call(TicketSeeder::class);
+        }
     }
 }

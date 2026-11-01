@@ -17,6 +17,16 @@ class Setting extends Model
     public const DEFAULTS = [
         'bot_token' => '',
         'chat_id' => '',
+        // Forum topic (message_thread_id) for ticket notifications; blank posts to the group's general chat.
+        'log_topic_id' => '',
+        // Forum topic for the daily master list; blank turns the list off.
+        'list_topic_id' => '',
+        // Today's master list message, kept by TelegramTicketList.
+        'ticket_list_message_id' => '',
+        'ticket_list_date' => '',
+        // Bot commands: Telegram sends the secret with every webhook call so the endpoint can tell it apart from anyone else.
+        'webhook_secret' => '',
+        'webhook_url' => '',
         'notify_on_new_ticket' => '1',
         'notify_on_status_change' => '1',
         'cs_phone' => '6281234567890',

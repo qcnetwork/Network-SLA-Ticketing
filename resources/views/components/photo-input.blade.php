@@ -1,6 +1,7 @@
 @props(['id' => 'photos'])
-<div x-data="photoInput(5)">
-    <label class="label" for="{{ $id }}">Foto/video dokumentasi <span class="font-normal text-slate-400">(maks. 5 file · foto 5 MB, video 50 MB)</span></label>
+@php($limits = App\Services\DocumentationPhotoStore::limits())
+<div x-data="photoInput(5, @js($limits))">
+    <label class="label" for="{{ $id }}">Foto/video dokumentasi <span class="font-normal text-slate-400">(maks. 5 file · foto {{ intdiv($limits['photo'], 1024 ** 2) }} MB, video {{ intdiv($limits['video'], 1024 ** 2) }} MB)</span></label>
     <input id="{{ $id }}" x-ref="input" type="file" name="photos[]" accept="image/*,video/mp4,video/quicktime,video/webm,video/3gpp" multiple class="sr-only" @change="onChoose($event)">
 
     <div tabindex="0" @dragover.prevent @drop.prevent="onDrop($event)"

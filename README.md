@@ -1,4 +1,4 @@
-# NetTicket (Laravel)
+# QCNet Ticketing (Laravel)
 
 Sistem ticketing komplain pelanggan untuk alur **CS → Helpdesk → Teknisi → CS**.
 Ini versi Laravel dari aplikasi Node di `D:\Project\Ticketing`.

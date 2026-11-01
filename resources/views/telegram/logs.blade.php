@@ -17,8 +17,8 @@
                         <span class="badge border-rose-300 bg-rose-50 text-rose-700" title="{{ $log->error }}">Gagal: {{ \Illuminate\Support\Str::limit($log->error, 60) }}</span>
                     @endif
                 </div>
-                {{-- Messages use Telegram's HTML subset; strip everything except the tags Telegram supports. --}}
-                <div class="rounded-lg bg-sky-50 p-3 text-sm leading-relaxed whitespace-pre-line wrap-break-word text-slate-800">{!! strip_tags($log->message, '<b><i><code><u><s>') !!}</div>
+                {{-- Messages use Telegram's HTML subset: keep only those tags, and only bare, since strip_tags keeps attributes such as onmouseover. --}}
+                <div class="rounded-lg bg-sky-50 p-3 text-sm leading-relaxed whitespace-pre-line wrap-break-word text-slate-800">{!! preg_replace('~<(/?)(b|i|code|u|s)\b[^>]*>~i', '<$1$2>', strip_tags($log->message, '<b><i><code><u><s>')) !!}</div>
             </article>
         @empty
             <div class="card p-10 text-center text-slate-400">Belum ada pesan.</div>

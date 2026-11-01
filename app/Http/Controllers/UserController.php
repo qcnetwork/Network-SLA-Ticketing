@@ -30,13 +30,14 @@ class UserController extends Controller
     {
         $request->merge(['username' => Str::lower(trim((string) $request->input('username')))]);
         $data = $request->validate([
-            'username' => ['required', 'string', 'max:50', 'alpha_dash', 'unique:users,username'],
+            // The primary-supervisor protections key on this username, so it cannot be claimed from the form.
+            'username' => ['required', 'string', 'max:50', 'alpha_dash', 'unique:users,username', Rule::notIn([User::PRIMARY_SUPERVISOR])],
             'name' => ['required', 'string', 'max:150'],
             'email' => ['nullable', 'email', 'max:150', 'unique:users,email'],
             'role' => ['required', Rule::enum(Role::class)],
             'phone' => ['nullable', 'string', 'max:30'],
-            'password' => ['required', 'string', Password::min(6)],
-        ]);
+            'password' => ['required', 'string', Password::defaults()],
+        ], ['username.not_in' => 'Username ini khusus untuk akun supervisor utama']);
 
         $data['phone'] = preg_replace('/\D/', '', (string) ($data['phone'] ?? ''));
         $user = User::create($data + ['active' => true]);
@@ -60,7 +61,7 @@ class UserController extends Controller
             'email' => ['nullable', 'email', 'max:150', Rule::unique('users', 'email')->ignore($user)],
             'role' => ['required', Rule::enum(Role::class)],
             'phone' => ['nullable', 'string', 'max:30'],
-            'password' => ['nullable', 'string', Password::min(6)],
+            'password' => ['nullable', 'string', Password::defaults()],
             'active' => ['required', 'boolean'],
         ]);
 
