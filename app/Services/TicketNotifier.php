@@ -52,6 +52,24 @@ class TicketNotifier
         ), $actor);
     }
 
+    /**
+     * A Helpdesk note goes to whoever holds the ticket's current step: the assigned crew while
+     * it is in repair, CS (who talks to the customer) everywhere else.
+     */
+    public function helpdeskInfo(Ticket $ticket, string $notes, string $urgency, ?User $actor): void
+    {
+        $notification = new InAppNotification(
+            "{$ticket->ticket_number} · {$ticket->customer_name}",
+            "[{$urgency}] Info dari Helpdesk".($actor ? " ({$actor->name})" : '').": {$notes}",
+            self::path('tickets.show', $ticket),
+            in_array($urgency, ['MENDESAK', 'KRITIS'], true) ? 'siren' : 'message-square',
+        );
+
+        $ticket->status === TicketStatus::PERBAIKAN
+            ? $this->send($ticket->technicians, $notification, $actor)
+            : $this->toRole(Role::CS, $notification, $actor);
+    }
+
     public function gamasOpened(Incident $incident, ?User $actor): void
     {
         $this->toRole(Role::SPV, new InAppNotification(

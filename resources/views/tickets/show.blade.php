@@ -14,6 +14,7 @@
         $canRequeue = $can(A::ANTRI_TEKNISI) && $status === S::PERBAIKAN;
         $canConfirm = $can(A::KONFIRMASI_NORMAL) && $status === S::MENUNGGU_KONFIRMASI;
         $canUrgency = $can(A::CATATAN_URGENSI_CS) && ! in_array($status, [S::PROSES_CS, S::TUTUP], true);
+        $canHelpdeskInfo = $can(A::CATATAN_INFO_HELPDESK) && $status !== S::TUTUP;
         $canDocument = $can(A::CATATAN_DOKUMENTASI) && $status !== S::TUTUP;
         $canRecategorize = $can(A::UBAH_KATEGORI) && $status !== S::TUTUP;
         $canEditCustomer = $can(A::UBAH_DATA_PELANGGAN) && $status !== S::TUTUP;
@@ -495,6 +496,27 @@
                         <input type="checkbox" name="upgrade_priority" value="1" class="rounded border-slate-300 text-rose-600"> Naikkan prioritas ke Tinggi
                     </label>
                     <button class="btn-danger w-full"><i data-lucide="send" class="h-4 w-4"></i>Kirim Catatan</button>
+                </form>
+            @endif
+
+            @if ($canHelpdeskInfo)
+                <form method="POST" action="{{ $actionUrl(A::CATATAN_INFO_HELPDESK) }}" class="card space-y-3 p-5">
+                    @csrf
+                    <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="message-square" class="h-4 w-4 text-indigo-600"></i>Info Helpdesk</h3>
+                    <p class="text-sm text-slate-500">
+                        Kirim info ke {{ $status === S::PERBAIKAN ? 'teknisi yang ditugaskan' : 'tim CS' }} (notifikasi) dan grup Telegram.
+                    </p>
+                    <select name="urgency_level" class="input">
+                        @foreach ($urgencyLevels as $level)
+                            <option value="{{ $level }}" @selected($level === 'INFO')>{{ $level }}</option>
+                        @endforeach
+                    </select>
+                    <textarea name="notes" rows="3" class="input" required placeholder="Contoh: Pelanggan minta teknisi datang setelah jam 2 siang"></textarea>
+                    <label class="flex items-center gap-2 text-sm text-slate-600">
+                        <input type="hidden" name="upgrade_priority" value="0">
+                        <input type="checkbox" name="upgrade_priority" value="1" class="rounded border-slate-300 text-indigo-600"> Naikkan prioritas ke Tinggi
+                    </label>
+                    <button class="btn-primary w-full"><i data-lucide="send" class="h-4 w-4"></i>Kirim Info</button>
                 </form>
             @endif
 

@@ -253,13 +253,17 @@ class TelegramService
             .'⏰ <i>'.now()->format('d/m/Y H:i').'</i>';
     }
 
-    public function urgencyMessage(Ticket $ticket, string $notes, string $urgencyLevel, string $actor): string
+    /**
+     * @param  string  $role  Whose note it is: CS (customer follow-up) or Helpdesk (info for CS/technicians).
+     */
+    public function urgencyMessage(Ticket $ticket, string $notes, string $urgencyLevel, string $actor, string $role = 'CS'): string
     {
         $e = self::escape(...);
+        $tag = strtoupper($role);
         $header = match ($urgencyLevel) {
             'KRITIS' => '🚨🚨 <b>[URGENSI KRITIS / EMERGENCY]</b>',
-            'MENDESAK' => '🚨 <b>[INFO URGENSI / FOLLOW UP CS]</b>',
-            default => '📝 <b>[CATATAN TAMBAHAN CS]</b>',
+            'MENDESAK' => "🚨 <b>[INFO URGENSI / FOLLOW UP {$tag}]</b>",
+            default => "📝 <b>[CATATAN TAMBAHAN {$tag}]</b>",
         };
 
         return "{$header}\n"
@@ -268,7 +272,7 @@ class TelegramService
             ."👤 <b>Pelanggan:</b> {$e($ticket->customer_name)} ({$e($ticket->customer_phone)})\n"
             ."📍 <b>Alamat:</b> {$e($ticket->customer_address ?: '-')}\n"
             ."⚡ <b>Status Saat Ini:</b> {$ticket->status->label()}\n"
-            ."💬 <b>Catatan CS ({$e($actor)}):</b>\n<i>\"{$e($notes)}\"</i>\n"
+            ."💬 <b>Catatan {$role} ({$e($actor)}):</b>\n<i>\"{$e($notes)}\"</i>\n"
             ."━━━━━━━━━━━━━━━━━━━━\n"
             .'⏰ <i>'.now()->format('d/m/Y H:i')."</i>\n"
             .'<i>Mohon Tim Terkait segera memprioritaskan tiket ini.</i>';

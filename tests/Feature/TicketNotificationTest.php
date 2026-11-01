@@ -125,6 +125,42 @@ class TicketNotificationTest extends TestCase
         $this->assertSame([], [...$inbox['cs'], ...$inbox['otherCs']]);
     }
 
+    public function test_helpdesk_info_reaches_whoever_holds_the_current_step(): void
+    {
+        $ticket = $this->createTicket($this->cs);
+        $this->act($this->cs, $ticket, 'TERUSKAN_HELPDESK');
+        $this->act($this->helpdesk, $ticket, 'KLAIM_HELPDESK');
+        $this->readAll();
+
+        // Before the repair: every CS, nobody else.
+        $this->act($this->helpdesk, $ticket, 'CATATAN_INFO_HELPDESK', ['notes' => 'ONT perlu diganti', 'urgency_level' => 'NORMAL']);
+        $inbox = $this->inboxes();
+        $this->assertSame(['[NORMAL] Info dari Helpdesk ('.$this->helpdesk->name.'): ONT perlu diganti'], $inbox['cs']);
+        $this->assertCount(1, $inbox['otherCs']);
+        $this->assertSame([], [...$inbox['helpdesk'], ...$inbox['otherHelpdesk'], ...$inbox['technician'], ...$inbox['otherTechnician']]);
+        $this->assertSame('NORMAL', $ticket->histories()->reorder('id', 'desc')->value('urgency_level'));
+        $this->readAll();
+
+        // In repair: only the assigned crew.
+        $this->act($this->helpdesk, $ticket, 'PERLU_TEKNISI', ['technician_ids' => [$this->technician->id]]);
+        $this->readAll();
+        $this->act($this->helpdesk, $ticket, 'CATATAN_INFO_HELPDESK', ['notes' => 'Pelanggan ada di rumah setelah jam 2', 'upgrade_priority' => '1']);
+        $inbox = $this->inboxes();
+        $this->assertStringContainsString('[INFO] Info dari Helpdesk', $inbox['technician'][0]);
+        $this->assertSame([], [...$inbox['otherTechnician'], ...$inbox['cs'], ...$inbox['otherCs'], ...$inbox['otherHelpdesk']]);
+        $this->assertSame('TINGGI', $ticket->fresh()->priority->value);
+    }
+
+    public function test_only_helpdesk_and_supervisors_send_helpdesk_info(): void
+    {
+        $ticket = $this->createTicket($this->cs);
+
+        $this->actingAs($this->cs)->post("/tickets/{$ticket->ticket_number}/actions/CATATAN_INFO_HELPDESK", ['notes' => 'x'])->assertForbidden();
+        $this->actingAs($this->helpdesk)->post("/tickets/{$ticket->ticket_number}/actions/CATATAN_INFO_HELPDESK", ['notes' => ''])->assertSessionHasErrors('notes');
+        $this->act($this->supervisor, $ticket, 'CATATAN_INFO_HELPDESK', ['notes' => 'Cek dulu']);
+        $this->assertCount(1, $this->inboxes()['cs']);
+    }
+
     public function test_ticket_made_by_helpdesk_is_announced_to_cs(): void
     {
         $this->createTicket($this->helpdesk);

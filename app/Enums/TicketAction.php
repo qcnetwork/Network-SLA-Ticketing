@@ -17,6 +17,7 @@ enum TicketAction: string
     case KONFIRMASI_NORMAL = 'KONFIRMASI_NORMAL';
     case KONFIRMASI_TERKENDALA = 'KONFIRMASI_TERKENDALA';
     case CATATAN_URGENSI_CS = 'CATATAN_URGENSI_CS';
+    case CATATAN_INFO_HELPDESK = 'CATATAN_INFO_HELPDESK';
     case CATATAN_DOKUMENTASI = 'CATATAN_DOKUMENTASI';
     case UBAH_KATEGORI = 'UBAH_KATEGORI';
     case UBAH_DATA_PELANGGAN = 'UBAH_DATA_PELANGGAN';
@@ -47,6 +48,8 @@ enum TicketAction: string
             // Helpdesk may record repair progress on the technician's behalf while technicians still report via Telegram.
             self::MULAI_PERBAIKAN, self::LAPOR_PERBAIKAN_SELESAI => [Role::TEKNISI, Role::HELPDESK, Role::SPV],
             self::SELESAI_EDUKASI_CS, self::TERUSKAN_HELPDESK, self::KONFIRMASI_NORMAL, self::KONFIRMASI_TERKENDALA, self::CATATAN_URGENSI_CS => [Role::CS, Role::SPV],
+            // Helpdesk's counterpart of the CS urgency note, sent to whoever holds the ticket's current step.
+            self::CATATAN_INFO_HELPDESK => [Role::HELPDESK, Role::SPV],
             self::CATATAN_DOKUMENTASI => [Role::CS, Role::HELPDESK, Role::TEKNISI, Role::SPV],
             // CS may fix a mis-picked category; the real fault often only shows up once Helpdesk or the technician checks the line.
             self::UBAH_KATEGORI => [Role::CS, Role::HELPDESK, Role::TEKNISI, Role::SPV],
@@ -74,6 +77,7 @@ enum TicketAction: string
             self::KONFIRMASI_NORMAL => 'Konfirmasi Normal',
             self::KONFIRMASI_TERKENDALA => 'Konfirmasi Terkendala',
             self::CATATAN_URGENSI_CS => 'Catatan Urgensi CS',
+            self::CATATAN_INFO_HELPDESK => 'Info Helpdesk',
             self::CATATAN_DOKUMENTASI => 'Catatan Dokumentasi',
             self::UBAH_KATEGORI => 'Ubah Kategori Kendala',
             self::UBAH_DATA_PELANGGAN => 'Ubah Data Pelanggan',

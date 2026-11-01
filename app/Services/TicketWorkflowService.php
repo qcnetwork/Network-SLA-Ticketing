@@ -274,6 +274,25 @@ class TicketWorkflowService
                     $description = "[{$urgency}] CS ({$actor->name}): {$notes}";
                     break;
 
+                case TicketAction::CATATAN_INFO_HELPDESK:
+                    if ($ticket->status === TicketStatus::TUTUP) {
+                        throw ValidationException::withMessages(['action' => 'Tidak dapat menambahkan info pada tiket yang sudah ditutup']);
+                    }
+                    if (! $notes) {
+                        throw ValidationException::withMessages(['notes' => 'Isi info wajib diisi']);
+                    }
+                    $urgency = $data['urgency_level'] ?? 'INFO';
+                    if (! in_array($urgency, self::URGENCY_LEVELS, true)) {
+                        throw ValidationException::withMessages(['urgency_level' => 'Tingkat urgensi tidak valid']);
+                    }
+                    if (! empty($data['upgrade_priority'])) {
+                        $ticket->priority = TicketPriority::TINGGI;
+                    }
+                    $ticket->loadMissing('technicians');
+                    $this->notifier->helpdeskInfo($ticket, $notes, $urgency, $actor);
+                    $description = "[{$urgency}] Helpdesk ({$actor->name}): {$notes}";
+                    break;
+
                 case TicketAction::CATATAN_DOKUMENTASI:
                     if ($ticket->status === TicketStatus::TUTUP) {
                         throw ValidationException::withMessages(['action' => 'Tidak dapat menambahkan dokumentasi pada tiket yang sudah ditutup']);
@@ -325,7 +344,11 @@ class TicketWorkflowService
                 'from_status' => $previous,
                 'to_status' => $ticket->status,
                 'notes' => $this->keepsFullDescription($action, $previous) ? $description : ($notes ?? $description),
-                'urgency_level' => $action === TicketAction::CATATAN_URGENSI_CS ? ($data['urgency_level'] ?? 'MENDESAK') : null,
+                'urgency_level' => match ($action) {
+                    TicketAction::CATATAN_URGENSI_CS => $data['urgency_level'] ?? 'MENDESAK',
+                    TicketAction::CATATAN_INFO_HELPDESK => $data['urgency_level'] ?? 'INFO',
+                    default => null,
+                },
             ]);
 
             foreach ($photos as $photo) {
@@ -476,6 +499,7 @@ class TicketWorkflowService
         $ticket->loadMissing('technicians');
         $text = match ($action) {
             TicketAction::CATATAN_URGENSI_CS => $this->telegram->urgencyMessage($ticket, $notes, $data['urgency_level'] ?? 'MENDESAK', $actor->name),
+            TicketAction::CATATAN_INFO_HELPDESK => $this->telegram->urgencyMessage($ticket, $notes, $data['urgency_level'] ?? 'INFO', $actor->name, 'Helpdesk'),
             TicketAction::MULAI_PERBAIKAN => $this->telegram->technicianStartMessage($ticket, $this->repairCrew($ticket, $actor), $actor->role === Role::TEKNISI ? null : $actor->name),
             default => $this->telegram->statusUpdateMessage($ticket, $previous, $notes, $actor->name),
         };
