@@ -11,6 +11,8 @@ use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Incident;
 use App\Models\ModemType;
+use App\Models\SerialUnit;
+use App\Models\Stock;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
 use App\Models\TicketCategory;
@@ -88,7 +90,7 @@ class TicketController extends Controller
     {
         $this->authorize('view', $ticket);
 
-        $ticket->load(['creator', 'helpdesk', 'technicians', 'incident', 'histories.user', 'histories.attachments']);
+        $ticket->load(['creator', 'helpdesk', 'technicians', 'incident', 'histories.user', 'histories.attachments', 'materials.item', 'materials.fromWarehouse', 'materials.serialUnit']);
         $user = request()->user();
         $isCrew = $ticket->status === TicketStatus::PERBAIKAN && $ticket->isAssignedTo($user);
 
@@ -101,6 +103,8 @@ class TicketController extends Controller
             'shareDurations' => TicketShare::DURATIONS,
             'ticket' => $ticket,
             'technicians' => User::technicians()->get(),
+            // What the repair crew carries, offered in the repair resume's material list.
+            'crewStock' => $ticket->status === TicketStatus::PERBAIKAN ? $this->crewStock($ticket) : [],
             'flow' => [
                 TicketStatus::PROSES_CS,
                 TicketStatus::ANTRIAN_HELPDESK,
@@ -120,6 +124,31 @@ class TicketController extends Controller
         ]);
     }
 
+    /**
+     * What each crew member carries, keyed by their user id, with the SNs of every modem they hold.
+     *
+     * @return array<int, list<array{code: string, name: string, quantity: int, serial: bool, units: list<array{sn: string, mac: ?string}>}>>
+     */
+    private function crewStock(Ticket $ticket): array
+    {
+        $units = SerialUnit::query()->whereHas('warehouse', fn ($q) => $q->whereIn('user_id', $ticket->technicians->modelKeys()))
+            ->orderBy('serial_number')->get()->groupBy(fn (SerialUnit $unit) => "{$unit->warehouse_id}:{$unit->item_id}");
+
+        return Stock::query()->with(['item', 'warehouse'])->where('quantity', '>', 0)
+            ->whereHas('warehouse', fn ($q) => $q->whereIn('user_id', $ticket->technicians->modelKeys()))->get()
+            ->sortBy('item.code')
+            ->groupBy(fn (Stock $stock) => $stock->warehouse->user_id)
+            ->map(fn ($stocks) => $stocks->map(fn (Stock $stock) => [
+                'code' => $stock->item->code,
+                'name' => $stock->item->name,
+                'quantity' => $stock->quantity,
+                'serial' => $stock->item->tracks_serial,
+                'units' => ($units["{$stock->warehouse_id}:{$stock->item_id}"] ?? collect())
+                    ->map(fn (SerialUnit $unit) => ['sn' => $unit->serial_number, 'mac' => $unit->formattedMac()])->values()->all(),
+            ])->values()->all())
+            ->all();
+    }
+
     public function perform(Request $request, Ticket $ticket, string $action): RedirectResponse
     {
         $action = TicketAction::tryFrom($action);
@@ -134,6 +163,12 @@ class TicketController extends Controller
             'urgency_level' => ['nullable', Rule::in(TicketWorkflowService::URGENCY_LEVELS)],
             'upgrade_priority' => ['nullable', 'boolean'],
             'category' => ['nullable', Rule::in(TicketCategory::activeNames())],
+            'materials' => ['nullable', 'array', 'max:30'],
+            'materials.*.technician_id' => ['nullable', 'integer'],
+            'materials.*.code' => ['nullable', 'string', 'max:200'],
+            'materials.*.quantity' => ['nullable', 'integer', 'min:1', 'max:10000'],
+            'materials.*.serial' => ['nullable', 'string', 'max:100'],
+            'materials.*.notes' => ['nullable', 'string', 'max:255'],
             ...DocumentationPhotoStore::rules(),
         ], DocumentationPhotoStore::MESSAGES);
 
@@ -168,6 +203,24 @@ class TicketController extends Controller
         return redirect()->route('tickets.show', $ticket)->with('success', $ticket->hasLocation()
             ? 'Data pelanggan berhasil diperbarui. Titik lokasi tersimpan.'
             : 'Data pelanggan berhasil diperbarui');
+    }
+
+    public function updateHandling(Request $request, Ticket $ticket): RedirectResponse
+    {
+        $this->authorize('perform', [$ticket, TicketAction::UBAH_PENANGANAN]);
+
+        $data = $request->validate([
+            'modem' => ['nullable', 'string', 'max:100'],
+            'remote_resolution_notes' => ['nullable', 'string', 'max:2000'],
+            'technician_notes' => ['nullable', 'string', 'max:2000'],
+        ], [], [
+            'remote_resolution_notes' => 'solusi remote',
+            'technician_notes' => 'laporan teknisi',
+        ]);
+
+        $ticket = $this->workflow->updateHandling($ticket, $data, $request->user());
+
+        return redirect()->route('tickets.show', $ticket)->with('success', 'Data penanganan berhasil diperbarui');
     }
 
     public function attachment(Ticket $ticket, TicketAttachment $attachment): BinaryFileResponse

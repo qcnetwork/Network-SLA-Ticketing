@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\Role;
+use App\Enums\StockMovementType;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Concerns\HasTechnicians;
@@ -101,6 +102,14 @@ class Ticket extends Model
     public function histories(): HasMany
     {
         return $this->hasMany(TicketHistory::class)->orderBy('created_at')->orderBy('id');
+    }
+
+    /**
+     * Material the technician reported using in the repair resume.
+     */
+    public function materials(): HasMany
+    {
+        return $this->hasMany(StockMovement::class)->where('type', StockMovementType::PAKAI)->orderBy('id');
     }
 
     public function attachments(): HasMany

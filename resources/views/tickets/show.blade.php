@@ -18,6 +18,7 @@
         $canDocument = $can(A::CATATAN_DOKUMENTASI) && $status !== S::TUTUP;
         $canRecategorize = $can(A::UBAH_KATEGORI) && $status !== S::TUTUP;
         $canEditCustomer = $can(A::UBAH_DATA_PELANGGAN) && $status !== S::TUTUP;
+        $canEditHandling = $can(A::UBAH_PENANGANAN);
         $canForward = $can(A::TERUSKAN_HELPDESK) && $status === S::PROSES_CS;
         $canCsClose = $can(A::SELESAI_EDUKASI_CS) && in_array($status, [S::PROSES_CS, S::ANTRIAN_HELPDESK], true);
         $actionUrl = fn (A $action) => route('tickets.perform', [$ticket, $action->value]);
@@ -184,9 +185,46 @@
             </section>
 
             {{-- Handling --}}
-            <section class="card p-5">
-                <h2 class="mb-4 flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="clipboard-list" class="h-4 w-4"></i>Penanganan</h2>
-                <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+            <section class="card p-5" x-data="{ editing: @js($errors->hasAny(['handling', 'remote_resolution_notes', 'technician_notes']) || ($errors->has('modem') && ! $canResolve)) }">
+                <div class="mb-4 flex items-center justify-between gap-3">
+                    <h2 class="flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="clipboard-list" class="h-4 w-4"></i>Penanganan</h2>
+                    @if ($canEditHandling)
+                        <button type="button" x-show="! editing" @click="editing = true" class="btn-secondary px-3 py-1.5 text-xs"><i data-lucide="pencil" class="h-3.5 w-3.5"></i>Ubah</button>
+                    @endif
+                </div>
+
+                @if ($canEditHandling)
+                    <form method="POST" action="{{ route('tickets.handling.update', $ticket) }}" x-show="editing" x-cloak class="space-y-4">
+                        @csrf
+                        @method('PUT')
+                        <div>
+                            <label class="label" for="edit_modem">Modem / ONT Pelanggan</label>
+                            <input id="edit_modem" name="modem" value="{{ old('modem', $ticket->modem) }}" list="edit_modem_suggestions" maxlength="100" class="input" placeholder="Contoh: ZTE F609">
+                            <datalist id="edit_modem_suggestions">
+                                @foreach ($modemSuggestions as $suggestion)
+                                    <option value="{{ $suggestion }}">
+                                @endforeach
+                            </datalist>
+                            <x-field-error name="modem" />
+                        </div>
+                        @foreach (['remote_resolution_notes' => 'Solusi Remote', 'technician_notes' => 'Laporan Teknisi'] as $field => $label)
+                            @if ($ticket->$field)
+                                <div>
+                                    <label class="label" for="edit_{{ $field }}">{{ $label }}</label>
+                                    <textarea id="edit_{{ $field }}" name="{{ $field }}" rows="3" class="input" required maxlength="2000">{{ old($field, $ticket->$field) }}</textarea>
+                                    <x-field-error :name="$field" />
+                                </div>
+                            @endif
+                        @endforeach
+                        <x-field-error name="handling" />
+                        <div class="flex justify-end gap-2">
+                            <button type="button" @click="editing = false" class="btn-secondary">Batal</button>
+                            <button class="btn-primary"><i data-lucide="save" class="h-4 w-4"></i>Simpan</button>
+                        </div>
+                    </form>
+                @endif
+
+                <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2" x-show="! editing">
                     <div><dt class="text-xs text-slate-500">Helpdesk</dt><dd class="font-medium">{{ $ticket->helpdesk?->name ?? 'Belum diambil' }}</dd></div>
                     <div><dt class="text-xs text-slate-500">Teknisi</dt><dd class="font-medium">{{ $ticket->technicianNames() ?: '-' }}</dd></div>
                     <div><dt class="text-xs text-slate-500">Modem / ONT</dt><dd class="font-medium">{{ $ticket->modem ?? '-' }}</dd></div>
@@ -204,6 +242,24 @@
                             <div class="sm:col-span-2"><dt class="text-xs text-slate-500">{{ $label }}</dt><dd class="mt-1 rounded-lg bg-slate-50 p-3 whitespace-pre-line wrap-break-word">{{ $ticket->$field }}</dd></div>
                         @endif
                     @endforeach
+                    @if ($ticket->materials->isNotEmpty())
+                        <div class="sm:col-span-2">
+                            <dt class="text-xs text-slate-500">Material Terpakai</dt>
+                            <dd class="mt-1 divide-y divide-slate-100 rounded-lg bg-slate-50 px-3">
+                                @foreach ($ticket->materials as $material)
+                                    <div class="flex flex-wrap items-center justify-between gap-2 py-2">
+                                        <span><span class="font-mono text-xs text-slate-600">{{ $material->item->code }}</span> {{ $material->item->name }}
+                                            @if ($material->serialUnit)
+                                                <span class="block font-mono text-xs text-slate-600">SN {{ $material->serialUnit->serial_number }}{{ $material->serialUnit->mac ? ' · '.$material->serialUnit->formattedMac() : '' }}</span>
+                                            @endif
+                                            @if ($material->notes)<span class="text-xs text-slate-500">({{ $material->notes }})</span>@endif
+                                        </span>
+                                        <span class="text-xs text-slate-500"><span class="font-semibold text-slate-800">× {{ $material->quantity }} {{ $material->item->unit }}</span> · {{ $material->fromWarehouse?->name }}</span>
+                                    </div>
+                                @endforeach
+                            </dd>
+                        </div>
+                    @endif
                 </dl>
             </section>
 
@@ -435,16 +491,63 @@
                         @endif
                     </form>
                 @else
-                    <form method="POST" action="{{ $actionUrl(A::LAPOR_PERBAIKAN_SELESAI) }}" enctype="multipart/form-data" class="card space-y-3 p-5">
+                    <form method="POST" action="{{ $actionUrl(A::LAPOR_PERBAIKAN_SELESAI) }}" enctype="multipart/form-data" class="card space-y-3 p-5"
+                        x-data="repairMaterials({
+                            lines: @js(array_values(old('materials', []))),
+                            technicians: @js($ticket->technicians->map->only(['id', 'name'])->values()),
+                            stock: @js((object) $crewStock),
+                            defaultTechnician: @js($isFieldTechnician ? auth()->id() : ($ticket->technicians->count() === 1 ? $ticket->technicians->first()->id : '')),
+                        })">
                         @csrf
-                        <h3 class="font-semibold">Laporan Perbaikan</h3>
+                        <h3 class="font-semibold">Resume Perbaikan</h3>
                         <p class="text-sm text-slate-500">
                             Dimulai {{ $ticket->repair_started_at->diffForHumans() }}.
                             @unless ($isFieldTechnician)
                                 Isi hasil pekerjaan teknisi <span class="font-medium text-slate-700">{{ $ticket->technicianNames() ?: '-' }}</span> dan lampirkan foto/video dari mereka.
                             @endunless
                         </p>
-                        <textarea name="notes" rows="4" class="input" required placeholder="Tindakan fisik: splicing FO, ganti konektor, redaman akhir, dll"></textarea>
+                        <textarea name="notes" rows="4" class="input" required placeholder="Tindakan fisik: splicing FO, ganti konektor, redaman akhir, dll">{{ old('notes') }}</textarea>
+
+                        {{-- Each line picks a crew member's warehouse, then only what that warehouse holds. --}}
+                        <div class="space-y-2 rounded-lg border border-slate-200 p-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="flex items-center gap-1 text-sm font-semibold text-slate-700"><i data-lucide="package" class="h-4 w-4"></i>Material Terpakai</span>
+                                <button type="button" @click="add()" class="btn-secondary px-2 py-1 text-xs">+ Tambah</button>
+                            </div>
+                            <template x-for="(line, i) in lines" :key="i">
+                                <div class="grid grid-cols-[1fr_4.5rem_auto] gap-2 border-t border-slate-100 pt-2 first:border-0 first:pt-0">
+                                    <select :name="`materials[${i}][technician_id]`" x-model="line.technician_id" @change="line.code = ''; line.serial = ''" class="input col-span-3 text-sm" required>
+                                        <option value="">Stok dari gudang teknisi...</option>
+                                        <template x-for="crew in technicians" :key="crew.id">
+                                            <option :value="crew.id" :selected="String(crew.id) === String(line.technician_id)" x-text="technicianLabel(crew)"></option>
+                                        </template>
+                                    </select>
+                                    <select :name="`materials[${i}][code]`" x-model="line.code" @change="line.serial = ''" class="input text-sm" required :disabled="! line.technician_id">
+                                        <option value="" x-text="itemsOf(line).length ? 'Pilih barang' : 'Gudang ini kosong'"></option>
+                                        <template x-for="item in itemsOf(line)" :key="item.code">
+                                            <option :value="item.code" :selected="item.code === line.code" x-text="itemLabel(item)"></option>
+                                        </template>
+                                    </select>
+                                    <input x-show="! isSerial(line)" :name="`materials[${i}][quantity]`" x-model="line.quantity" type="number" min="1" class="input text-sm" :required="! isSerial(line)">
+                                    <span x-show="isSerial(line)" class="input bg-slate-50 text-center text-sm text-slate-500">1 unit</span>
+                                    <button type="button" @click="lines.splice(i, 1)" class="btn-secondary px-2 text-xs" title="Hapus">&times;</button>
+                                    <template x-if="isSerial(line)">
+                                        <select :name="`materials[${i}][serial]`" x-model="line.serial" class="input col-span-3 font-mono text-sm" required>
+                                            <option value="" x-text="unitsFor(line, i).length ? 'Pilih SN modem yang dipasang' : 'Tidak ada SN tersisa'"></option>
+                                            <template x-for="unit in unitsFor(line, i)" :key="unit.sn">
+                                                <option :value="unit.sn" :selected="unit.sn === line.serial" x-text="unit.mac ? `${unit.sn} · ${unit.mac}` : unit.sn"></option>
+                                            </template>
+                                        </select>
+                                    </template>
+                                    <input :name="`materials[${i}][notes]`" x-model="line.notes" class="input col-span-3 text-xs" maxlength="255" placeholder="Keterangan (opsional), mis. modem lama ditarik">
+                                </div>
+                            </template>
+                            <p x-show="! lines.length" class="text-xs text-slate-400">
+                                {{ empty($crewStock) ? 'Teknisi belum memegang stok. Minta Warehouse mengirim barang dulu.' : 'Tidak ada material? Biarkan kosong.' }}
+                            </p>
+                            <x-field-error name="materials" />
+                        </div>
+
                         <x-photo-input id="repair_photos" />
                         <button class="btn-success w-full"><i data-lucide="check-circle-2" class="h-4 w-4"></i>Kirim Laporan Selesai</button>
                     </form>

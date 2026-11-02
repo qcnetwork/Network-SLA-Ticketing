@@ -10,6 +10,8 @@
             ? ['route' => 'tickets.create', 'label' => 'Tiket Baru', 'icon' => 'plus-circle', 'active' => 'tickets.create'] : null,
         $user->hasRole(Role::HELPDESK, Role::SPV, Role::TEKNISI)
             ? ['route' => 'archive.index', 'label' => 'Arsip', 'icon' => 'archive', 'active' => 'archive.*'] : null,
+        $user->hasRole(Role::GUDANG, Role::SPV, Role::HELPDESK, Role::TEKNISI)
+            ? ['route' => 'warehouses.index', 'label' => $user->role === Role::TEKNISI ? 'Stok Saya' : 'Gudang', 'icon' => 'warehouse', 'active' => ['warehouses.*', 'items.*']] : null,
     ]));
     $more = array_values(array_filter([
         $user->hasRole(Role::HELPDESK, Role::SPV, Role::CS)

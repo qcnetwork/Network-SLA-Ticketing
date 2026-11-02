@@ -8,6 +8,7 @@ enum Role: string
     case HELPDESK = 'HELPDESK';
     case CS = 'CS';
     case TEKNISI = 'TEKNISI';
+    case GUDANG = 'GUDANG';
 
     public function label(): string
     {
@@ -16,6 +17,7 @@ enum Role: string
             self::HELPDESK => 'Helpdesk',
             self::CS => 'Customer Service',
             self::TEKNISI => 'Teknisi',
+            self::GUDANG => 'Warehouse',
         };
     }
 }

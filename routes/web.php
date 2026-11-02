@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\IncidentController;
+use App\Http\Controllers\ItemController;
 use App\Http\Controllers\ModemTypeController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
@@ -14,6 +15,7 @@ use App\Http\Controllers\TicketCategoryController;
 use App\Http\Controllers\TicketController;
 use App\Http\Controllers\TicketShareController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function () {
@@ -41,6 +43,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/tickets/{ticket}', [TicketController::class, 'destroy'])->name('tickets.destroy');
     Route::post('/tickets/{ticket}/actions/{action}', [TicketController::class, 'perform'])->name('tickets.perform');
     Route::put('/tickets/{ticket}/customer', [TicketController::class, 'updateCustomer'])->name('tickets.customer.update');
+    Route::put('/tickets/{ticket}/handling', [TicketController::class, 'updateHandling'])->name('tickets.handling.update');
     Route::get('/tickets/{ticket}/attachments/{attachment}', [TicketController::class, 'attachment'])
         ->scopeBindings()->name('tickets.attachment');
     Route::get('/tickets/{ticket}/whatsapp', [TicketController::class, 'whatsapp'])->name('tickets.whatsapp');
@@ -54,6 +57,24 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::get('/arsip',[ArchiveController::class, 'index'])->middleware('role:HELPDESK,SPV,TEKNISI')->name('archive.index');
+
+    Route::middleware('role:GUDANG,SPV')->group(function () {
+        Route::get('/gudang/barang', [ItemController::class, 'index'])->name('items.index');
+        Route::post('/gudang/barang', [ItemController::class, 'store'])->name('items.store');
+        Route::put('/gudang/barang/{item}', [ItemController::class, 'update'])->name('items.update');
+        Route::post('/gudang/barang/impor', [ItemController::class, 'import'])->name('items.import');
+        Route::post('/gudang/masuk', [WarehouseController::class, 'receive'])->name('warehouses.receive');
+        Route::post('/gudang/kirim', [WarehouseController::class, 'send'])->name('warehouses.send');
+        Route::post('/gudang/{warehouse}/retur', [WarehouseController::class, 'returnStock'])->name('warehouses.return');
+        Route::post('/gudang/masuk-sn', [WarehouseController::class, 'receiveSerials'])->name('warehouses.receive-serials');
+        Route::post('/gudang/kirim-sn', [WarehouseController::class, 'sendSerials'])->name('warehouses.send-serials');
+        Route::post('/gudang/{warehouse}/retur-sn', [WarehouseController::class, 'returnSerials'])->name('warehouses.return-serials');
+        Route::get('/gudang/cek-sn', [WarehouseController::class, 'lookupSerial'])->name('warehouses.lookup-serial');
+    });
+    Route::middleware('role:GUDANG,SPV,HELPDESK,TEKNISI')->group(function () {
+        Route::get('/gudang', [WarehouseController::class, 'index'])->name('warehouses.index');
+        Route::get('/gudang/{warehouse}', [WarehouseController::class, 'show'])->whereNumber('warehouse')->name('warehouses.show');
+    });
 
     Route::get('/gamas', [IncidentController::class, 'index'])->name('incidents.index');
     Route::get('/gamas/create', [IncidentController::class, 'create'])->name('incidents.create');

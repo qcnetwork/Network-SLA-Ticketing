@@ -37,6 +37,7 @@ class TicketWorkflowService
         private TelegramOutbox $outbox,
         private DocumentationPhotoStore $photoStore,
         private TicketNotifier $notifier,
+        private InventoryService $inventory,
     ) {}
 
     /**
@@ -257,7 +258,9 @@ class TicketWorkflowService
                     $ticket->status = TicketStatus::MENUNGGU_KONFIRMASI;
                     $ticket->technician_notes = $notes ?? 'Perbaikan fisik di lokasi telah selesai.';
                     $ticket->resolved_at = $now;
+                    $materials = $this->inventory->consumeForTicket($ticket, $data['materials'] ?? [], $actor);
                     $description = "Teknisi [{$this->repairCrew($ticket, $actor)}] menyelesaikan perbaikan: {$ticket->technician_notes}"
+                        .($materials->isNotEmpty() ? "\nMaterial terpakai:\n".$materials->map(fn (string $line) => "• {$line}")->implode("\n") : '')
                         .$this->recordedOnBehalf($actor);
                     break;
 
@@ -455,6 +458,56 @@ class TicketWorkflowService
         }
 
         return $ticket;
+    }
+
+    /**
+     * Correct or complete what Helpdesk recorded while handling the ticket, e.g. a modem type left blank.
+     * Closed tickets stay editable so the monthly report gets the right data. A note can only be
+     * corrected where the ticket already has one, so the edit never invents a remote fix or repair.
+     *
+     * @param  array{modem?: ?string, remote_resolution_notes?: ?string, technician_notes?: ?string}  $data
+     */
+    public function updateHandling(Ticket $ticket, array $data, User $actor): Ticket
+    {
+        $this->ensureRole(TicketAction::UBAH_PENANGANAN, $actor);
+
+        return DB::transaction(function () use ($ticket, $data, $actor) {
+            $ticket = Ticket::query()->lockForUpdate()->findOrFail($ticket->id);
+            $labels = ['modem' => 'Modem / ONT', 'remote_resolution_notes' => 'Solusi Remote', 'technician_notes' => 'Laporan Teknisi'];
+            $before = $ticket->only(array_keys($labels));
+
+            $ticket->modem = trim((string) ($data['modem'] ?? '')) ?: null;
+            foreach (['remote_resolution_notes', 'technician_notes'] as $field) {
+                if ($before[$field] === null) {
+                    continue;
+                }
+                $notes = trim((string) ($data[$field] ?? ''));
+                if ($notes === '') {
+                    throw ValidationException::withMessages([$field => "{$labels[$field]} tidak boleh dikosongkan"]);
+                }
+                $ticket->{$field} = $notes;
+            }
+
+            $changes = collect($labels)
+                ->filter(fn ($label, $field) => $before[$field] !== $ticket->{$field})
+                ->map(fn ($label, $field) => "{$label}: \"".($before[$field] ?? '-').'" → "'.($ticket->{$field} ?? '-').'"')
+                ->values();
+            if ($changes->isEmpty()) {
+                throw ValidationException::withMessages(['handling' => 'Tidak ada data penanganan yang berubah']);
+            }
+
+            $ticket->save();
+            $ticket->histories()->create([
+                'user_id' => $actor->id,
+                'actor_name' => $actor->name,
+                'action' => TicketAction::UBAH_PENANGANAN,
+                'from_status' => $ticket->status,
+                'to_status' => $ticket->status,
+                'notes' => "Data penanganan diubah oleh {$actor->name}:\n".$changes->implode("\n"),
+            ]);
+
+            return $ticket;
+        });
     }
 
     /**
