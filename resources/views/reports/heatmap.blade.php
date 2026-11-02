@@ -77,7 +77,12 @@
     <section class="card mb-6 overflow-hidden">
         @if ($m['located'] > 0)
             {{-- isolate: Leaflet's panes use z-index 400+, which would cover the sticky header. --}}
-            <div id="complaint-map" class="isolate h-[28rem] w-full sm:h-[34rem]" role="img" aria-label="Peta sebaran komplain"></div>
+            <div class="relative">
+                <div id="complaint-map" class="isolate h-[28rem] w-full sm:h-[34rem]" role="img" aria-label="Peta sebaran komplain"></div>
+                <div id="complaint-map-hint" class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-slate-900/40 text-sm font-semibold text-white opacity-0 transition-opacity duration-300">
+                    Tahan Ctrl + scroll untuk zoom peta
+                </div>
+            </div>
             <script type="application/json" id="complaint-map-data">@json(['points' => $m['points'], 'hotspots' => $m['hotspots']])</script>
             @vite('resources/js/heatmap.js')
         @else

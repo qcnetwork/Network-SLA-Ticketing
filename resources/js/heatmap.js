@@ -33,6 +33,29 @@ if (element && data.points?.length) {
 
     map.fitBounds(L.latLngBounds(data.points), { padding: [24, 24], maxZoom: 15 });
 
+    // Ctrl + scroll zooms around the cursor; a plain scroll keeps scrolling the page and shows a hint.
+    // Trackpad pinches arrive as ctrl + small wheel deltas, so they're summed into whole zoom steps.
+    const hint = document.getElementById('complaint-map-hint');
+    let hintTimer;
+    let wheelDelta = 0;
+    element.addEventListener('wheel', (event) => {
+        if (!event.ctrlKey && !event.metaKey) {
+            hint?.classList.replace('opacity-0', 'opacity-100');
+            clearTimeout(hintTimer);
+            hintTimer = setTimeout(() => hint?.classList.replace('opacity-100', 'opacity-0'), 1200);
+            return;
+        }
+
+        event.preventDefault(); // stop the browser's own page zoom
+        hint?.classList.replace('opacity-100', 'opacity-0');
+        wheelDelta += event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 40 : event.deltaY;
+        if (Math.abs(wheelDelta) < 60) return;
+
+        const zoom = map.getZoom() - Math.sign(wheelDelta);
+        wheelDelta = 0;
+        map.setZoomAround(map.mouseEventToContainerPoint(event), zoom);
+    }, { passive: false });
+
     document.querySelectorAll('[data-hotspot]').forEach((button) => {
         button.addEventListener('click', () => {
             map.flyTo([Number(button.dataset.lat), Number(button.dataset.lng)], 16);
