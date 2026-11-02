@@ -13,6 +13,11 @@ class SerialUnit extends Model
 {
     protected $guarded = ['id'];
 
+    protected function casts(): array
+    {
+        return ['received_at' => 'date', 'taken_at' => 'date', 'imported_at' => 'datetime'];
+    }
+
     public function item(): BelongsTo
     {
         return $this->belongsTo(Item::class);
@@ -53,6 +58,12 @@ class SerialUnit extends Model
 
     public function location(): string
     {
-        return $this->warehouse?->name ?? ($this->ticket ? "Terpasang · {$this->ticket->ticket_number}" : '-');
+        return $this->warehouse?->name
+            ?? match (true) {
+                $this->ticket !== null => "Terpasang · {$this->ticket->ticket_number}",
+                $this->condition !== null => "Keluar stok · {$this->condition}",
+                $this->installed_to !== null => "Terpasang · {$this->installed_to}",
+                default => '-',
+            };
     }
 }

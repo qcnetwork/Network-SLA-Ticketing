@@ -29,6 +29,12 @@
                                         <span class="font-mono text-xs text-slate-500">· {{ $unit->formattedMac() }}</span>
                                     @endif
                                     <span class="block text-xs text-slate-500">{{ $unit->item->label() }}</span>
+                                    @if ($unit->imported_at)
+                                        {{-- History carried over from the TRACKING ALAT sheet. --}}
+                                        <span class="block text-xs text-slate-400">
+                                            {{ collect([$unit->install_status, $unit->holder_name ? 'Teknisi: '.$unit->holder_name : null, $unit->taken_at ? 'Diambil '.$unit->taken_at->format('d/m/Y') : null, $unit->replaced_device ? 'Ganti: '.$unit->replaced_device : null])->filter()->implode(' · ') }}
+                                        </span>
+                                    @endif
                                 </span>
                                 @if ($unit->ticket)
                                     <a href="{{ route('tickets.show', $unit->ticket) }}" class="text-xs font-medium text-indigo-700 hover:underline">{{ $unit->location() }} · {{ $unit->ticket->customer_name }}</a>
