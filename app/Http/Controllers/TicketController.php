@@ -21,6 +21,7 @@ use App\Models\TicketShare;
 use App\Models\User;
 use App\Services\DocumentationPhotoStore;
 use App\Services\IncidentWorkflowService;
+use App\Services\InventoryService;
 use App\Services\TicketWorkflowService;
 use App\Services\WhatsAppTemplateService;
 use Illuminate\Http\RedirectResponse;
@@ -32,7 +33,19 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class TicketController extends Controller
 {
-    public function __construct(private TicketWorkflowService $workflow) {}
+    /**
+     * Material lines of a repair resume, or of material sent again after the warehouse rejected it.
+     */
+    private const MATERIAL_RULES = [
+        'materials' => ['nullable', 'array', 'max:30'],
+        'materials.*.technician_id' => ['nullable', 'integer'],
+        'materials.*.code' => ['nullable', 'string', 'max:200'],
+        'materials.*.quantity' => ['nullable', 'integer', 'min:1', 'max:10000'],
+        'materials.*.serial' => ['nullable', 'string', 'max:100'],
+        'materials.*.notes' => ['nullable', 'string', 'max:255'],
+    ];
+
+    public function __construct(private TicketWorkflowService $workflow, private InventoryService $inventory) {}
 
     public function create(Request $request): View
     {
@@ -105,7 +118,7 @@ class TicketController extends Controller
             'ticket' => $ticket,
             'technicians' => User::technicians()->get(),
             // What the repair crew carries, offered in the repair resume's material list.
-            'crewStock' => $ticket->status === TicketStatus::PERBAIKAN ? $this->crewStock($ticket) : [],
+            'crewStock' => $ticket->status === TicketStatus::PERBAIKAN || $user->can('resubmitMaterial', $ticket) ? $this->crewStock($ticket) : [],
             'flow' => [
                 TicketStatus::PROSES_CS,
                 TicketStatus::ANTRIAN_HELPDESK,
@@ -169,12 +182,7 @@ class TicketController extends Controller
             'urgency_level' => ['nullable', Rule::in(TicketWorkflowService::URGENCY_LEVELS)],
             'upgrade_priority' => ['nullable', 'boolean'],
             'category' => ['nullable', Rule::in(TicketCategory::activeNames())],
-            'materials' => ['nullable', 'array', 'max:30'],
-            'materials.*.technician_id' => ['nullable', 'integer'],
-            'materials.*.code' => ['nullable', 'string', 'max:200'],
-            'materials.*.quantity' => ['nullable', 'integer', 'min:1', 'max:10000'],
-            'materials.*.serial' => ['nullable', 'string', 'max:100'],
-            'materials.*.notes' => ['nullable', 'string', 'max:255'],
+            ...self::MATERIAL_RULES,
             ...DocumentationPhotoStore::rules(),
         ], DocumentationPhotoStore::MESSAGES);
 
@@ -209,6 +217,19 @@ class TicketController extends Controller
         return redirect()->route('tickets.show', $ticket)->with('success', $ticket->hasLocation()
             ? 'Data pelanggan berhasil diperbarui. Titik lokasi tersimpan.'
             : 'Data pelanggan berhasil diperbarui');
+    }
+
+    public function resubmitMaterial(Request $request, Ticket $ticket): RedirectResponse
+    {
+        $this->authorize('resubmitMaterial', $ticket);
+        $data = $request->validate(self::MATERIAL_RULES);
+        $this->inventory->resubmitForTicket($ticket, $data['materials'] ?? [], $request->user());
+        $message = "Material tiket {$ticket->ticket_number} diajukan ulang, menunggu ACC Gudang";
+
+        // A technician only had the ticket open to fix the material, so they go back to their stock.
+        return $request->user()->role === Role::TEKNISI
+            ? redirect()->route('warehouses.index')->with('success', $message)
+            : back()->with('success', $message);
     }
 
     public function updateHandling(Request $request, Ticket $ticket): RedirectResponse

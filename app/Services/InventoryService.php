@@ -176,6 +176,36 @@ class InventoryService
     }
 
     /**
+     * Send material again after the warehouse rejected the last request, whatever stage the ticket is at.
+     *
+     * @param  array<array{technician_id?: mixed, code?: ?string, quantity?: mixed, serial?: ?string, notes?: ?string}>  $lines
+     */
+    public function resubmitForTicket(Ticket $ticket, array $lines, User $actor): Collection
+    {
+        return DB::transaction(function () use ($ticket, $lines, $actor) {
+            $ticket = Ticket::query()->lockForUpdate()->with(['technicians', 'materialRequests'])->findOrFail($ticket->id);
+            if (! $ticket->awaitsMaterialResubmission()) {
+                throw ValidationException::withMessages(['materials' => 'Material tiket ini tidak sedang ditolak Gudang']);
+            }
+            $materials = $this->requestForTicket($ticket, $lines, $actor);
+            if ($materials->isEmpty()) {
+                throw ValidationException::withMessages(['materials' => 'Isi minimal satu material']);
+            }
+            $ticket->histories()->create([
+                'user_id' => $actor->id,
+                'actor_name' => $actor->name,
+                'action' => TicketAction::MATERIAL_DIAJUKAN_ULANG,
+                'from_status' => $ticket->status,
+                'to_status' => $ticket->status,
+                'notes' => "Material diajukan ulang oleh {$actor->name} (menunggu ACC Gudang, stok belum berkurang):\n"
+                    .$materials->map(fn (string $line) => "• {$line}")->implode("\n"),
+            ]);
+
+            return $materials;
+        });
+    }
+
+    /**
      * The warehouse accepts a repair resume's material: each line now leaves its technician's warehouse,
      * and a modem's SN moves onto the ticket as installed.
      */

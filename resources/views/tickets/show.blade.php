@@ -22,6 +22,15 @@
         $canForward = $can(A::TERUSKAN_HELPDESK) && $status === S::PROSES_CS;
         $canCsClose = $can(A::SELESAI_EDUKASI_CS) && in_array($status, [S::PROSES_CS, S::ANTRIAN_HELPDESK], true);
         $actionUrl = fn (A $action) => route('tickets.perform', [$ticket, $action->value]);
+        $isFieldTechnician = auth()->user()->role === App\Enums\Role::TEKNISI;
+        $materialForm = [
+            'lines' => array_values(old('materials', [])),
+            'technicians' => $ticket->technicians->map->only(['id', 'name'])->values(),
+            'stock' => (object) $crewStock,
+            'defaultTechnician' => $isFieldTechnician ? auth()->id() : ($ticket->technicians->count() === 1 ? $ticket->technicians->first()->id : ''),
+        ];
+        // A new resume would carry its own material, so the resubmit form waits until the repair is reported.
+        $canResubmitMaterial = auth()->user()->can('resubmitMaterial', $ticket) && ! ($canRepair && $ticket->repair_started_at);
         // Material approval runs on its own clock: it can still be waiting after the ticket is closed.
         $materialStatus = auth()->user()->hasRole(App\Enums\Role::HELPDESK, App\Enums\Role::GUDANG, App\Enums\Role::SPV) && $ticket->materialRequests->isNotEmpty()
             ? match (true) {
@@ -487,7 +496,6 @@
             @endif
 
             @if ($canRepair)
-                @php($isFieldTechnician = auth()->user()->role === App\Enums\Role::TEKNISI)
                 @if (! $ticket->repair_started_at)
                     <form method="POST" action="{{ $actionUrl(A::MULAI_PERBAIKAN) }}" class="card p-5">
                         @csrf
@@ -502,12 +510,7 @@
                     </form>
                 @else
                     <form method="POST" action="{{ $actionUrl(A::LAPOR_PERBAIKAN_SELESAI) }}" enctype="multipart/form-data" class="card space-y-3 p-5"
-                        x-data="repairMaterials({
-                            lines: @js(array_values(old('materials', []))),
-                            technicians: @js($ticket->technicians->map->only(['id', 'name'])->values()),
-                            stock: @js((object) $crewStock),
-                            defaultTechnician: @js($isFieldTechnician ? auth()->id() : ($ticket->technicians->count() === 1 ? $ticket->technicians->first()->id : '')),
-                        })">
+                        x-data="repairMaterials(@js($materialForm))">
                         @csrf
                         <h3 class="font-semibold">Resume Perbaikan</h3>
                         <p class="text-sm text-slate-500">
@@ -518,50 +521,26 @@
                         </p>
                         <textarea name="notes" rows="4" class="input" required placeholder="Tindakan fisik: splicing FO, ganti konektor, redaman akhir, dll">{{ old('notes') }}</textarea>
 
-                        {{-- Each line picks a crew member's warehouse, then only what that warehouse holds. --}}
-                        <div class="space-y-2 rounded-lg border border-slate-200 p-3">
-                            <div class="flex items-center justify-between gap-2">
-                                <span class="flex items-center gap-1 text-sm font-semibold text-slate-700"><i data-lucide="package" class="h-4 w-4"></i>Material Terpakai</span>
-                                <button type="button" @click="add()" class="btn-secondary px-2 py-1 text-xs">+ Tambah</button>
-                            </div>
-                            <template x-for="(line, i) in lines" :key="i">
-                                <div class="grid grid-cols-[1fr_4.5rem_auto] gap-2 border-t border-slate-100 pt-2 first:border-0 first:pt-0">
-                                    <select :name="`materials[${i}][technician_id]`" x-model="line.technician_id" @change="line.code = ''; line.serial = ''" class="input col-span-3 text-sm" required>
-                                        <option value="">Stok dari gudang teknisi...</option>
-                                        <template x-for="crew in technicians" :key="crew.id">
-                                            <option :value="crew.id" :selected="String(crew.id) === String(line.technician_id)" x-text="technicianLabel(crew)"></option>
-                                        </template>
-                                    </select>
-                                    <select :name="`materials[${i}][code]`" x-model="line.code" @change="line.serial = ''" class="input text-sm" required :disabled="! line.technician_id">
-                                        <option value="" x-text="itemsOf(line).length ? 'Pilih barang' : 'Gudang ini kosong'"></option>
-                                        <template x-for="item in itemsOf(line)" :key="item.code">
-                                            <option :value="item.code" :selected="item.code === line.code" x-text="itemLabel(item)"></option>
-                                        </template>
-                                    </select>
-                                    <input x-show="! isSerial(line)" :name="`materials[${i}][quantity]`" x-model="line.quantity" type="number" min="1" class="input text-sm" :required="! isSerial(line)">
-                                    <span x-show="isSerial(line)" class="input bg-slate-50 text-center text-sm text-slate-500">1 unit</span>
-                                    <button type="button" @click="lines.splice(i, 1)" class="btn-secondary px-2 text-xs" title="Hapus">&times;</button>
-                                    <template x-if="isSerial(line)">
-                                        <select :name="`materials[${i}][serial]`" x-model="line.serial" class="input col-span-3 font-mono text-sm" required>
-                                            <option value="" x-text="unitsFor(line, i).length ? 'Pilih SN modem yang dipasang' : 'Tidak ada SN tersisa'"></option>
-                                            <template x-for="unit in unitsFor(line, i)" :key="unit.sn">
-                                                <option :value="unit.sn" :selected="unit.sn === line.serial" x-text="unit.mac ? `${unit.sn} · ${unit.mac}` : unit.sn"></option>
-                                            </template>
-                                        </select>
-                                    </template>
-                                    <input :name="`materials[${i}][notes]`" x-model="line.notes" class="input col-span-3 text-xs" maxlength="255" placeholder="Keterangan (opsional), mis. modem lama ditarik">
-                                </div>
-                            </template>
-                            <p x-show="! lines.length" class="text-xs text-slate-400">
-                                {{ empty($crewStock) ? 'Teknisi belum memegang stok. Minta Warehouse mengirim barang dulu.' : 'Material diajukan ke Gudang; stok baru berkurang setelah di-ACC. Tidak ada material? Biarkan kosong.' }}
-                            </p>
-                            <x-field-error name="materials" />
-                        </div>
+                        @include('tickets.partials.material-lines')
 
                         <x-photo-input id="repair_photos" />
                         <button class="btn-success w-full"><i data-lucide="check-circle-2" class="h-4 w-4"></i>Kirim Laporan Selesai</button>
                     </form>
                 @endif
+            @endif
+
+            @if ($canResubmitMaterial)
+                @php($rejected = $ticket->materialRequests->last())
+                <form method="POST" action="{{ route('tickets.material.resubmit', $ticket) }}" class="card space-y-3 p-5" x-data="repairMaterials(@js($materialForm))">
+                    @csrf
+                    <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="refresh-cw" class="h-4 w-4 text-rose-600"></i>Ajukan Ulang Material</h3>
+                    <p class="rounded-lg bg-rose-50 p-2 text-sm text-rose-800">
+                        Ditolak {{ $rejected->reviewer?->name ?? 'Gudang' }}: {{ $rejected->review_notes }}
+                    </p>
+                    <p class="text-sm text-slate-500">Isi material yang benar-benar terpakai. Stok baru berkurang setelah di-ACC Gudang.</p>
+                    @include('tickets.partials.material-lines')
+                    <button class="btn-primary w-full"><i data-lucide="send" class="h-4 w-4"></i>Ajukan ke Gudang</button>
+                </form>
             @endif
 
             @if ($canConfirm)

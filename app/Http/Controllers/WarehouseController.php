@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\MaterialRequestStatus;
 use App\Enums\Role;
 use App\Models\Item;
 use App\Models\MaterialRequest;
 use App\Models\SerialUnit;
 use App\Models\StockMovement;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\InventoryService;
@@ -61,6 +63,13 @@ class WarehouseController extends Controller
             'warehouse' => $warehouse->load('user'),
             'materialRequests' => MaterialRequest::query()->pending()->whereHas('lines', fn ($q) => $q->where('warehouse_id', $warehouse->id))
                 ->with(self::REQUEST_DETAILS)->oldest('id')->get(),
+            // Tickets of this technician whose material the warehouse turned down, waiting to be sent again.
+            'rejectedTickets' => $warehouse->user
+                ? Ticket::query()->assignedTo($warehouse->user)
+                    ->whereHas('materialRequests', fn ($q) => $q->where('status', MaterialRequestStatus::REJECTED))
+                    ->with('materialRequests.reviewer')->latest('updated_at')->get()
+                    ->filter->awaitsMaterialResubmission()->values()
+                : collect(),
             ...$this->stockPage($request, $warehouse),
             'canManage' => $user->hasRole(Role::GUDANG, Role::SPV),
         ]);

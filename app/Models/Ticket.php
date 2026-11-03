@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\MaterialRequestStatus;
 use App\Enums\Role;
 use App\Enums\StockMovementType;
 use App\Enums\TicketPriority;
@@ -118,6 +119,14 @@ class Ticket extends Model
     public function materialRequests(): HasMany
     {
         return $this->hasMany(MaterialRequest::class)->orderBy('id');
+    }
+
+    /**
+     * The warehouse turned down the latest material and nothing has been sent again since.
+     */
+    public function awaitsMaterialResubmission(): bool
+    {
+        return $this->materialRequests->last()?->status === MaterialRequestStatus::REJECTED;
     }
 
     public function attachments(): HasMany

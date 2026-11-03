@@ -156,8 +156,31 @@ class InventoryTest extends TestCase
         $this->assertSame(TicketAction::MATERIAL_DITOLAK, $history->action);
         $this->assertStringContainsString('Adaptor masih bagus', $history->notes);
 
-        // Rejected stock is free again.
-        $this->post("/gudang/{$own->id}/retur", ['item' => 'ADP001', 'quantity' => 3])->assertSessionHasNoErrors();
+        // The crew sends it again, even after the ticket is closed; another technician cannot.
+        $ticket->update(['status' => TicketStatus::TUTUP, 'closed_at' => now()]);
+        $resubmit = "/tickets/{$ticket->ticket_number}/material";
+        $outsider = $this->userWithRole(Role::TEKNISI);
+        $this->actingAs($outsider)->get("/tickets/{$ticket->ticket_number}")->assertForbidden();
+        $this->post($resubmit, ['materials' => [['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 1]]])->assertForbidden();
+
+        $this->actingAs($this->technician)->get("/gudang/{$own->id}")->assertSee('Material Ditolak, Ajukan Ulang')->assertSee($ticket->ticket_number);
+        $this->get("/tickets/{$ticket->ticket_number}")->assertOk()->assertSee('Ajukan Ulang Material')->assertSee('Adaptor masih bagus');
+        $this->post($resubmit, ['materials' => []])->assertSessionHasErrors('materials');
+        $this->post($resubmit, ['materials' => [['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 1, 'notes' => 'cuma satu']]])
+            ->assertRedirect('/gudang')->assertSessionHasNoErrors();
+
+        $this->assertSame(3, $this->quantity($own, $this->adaptor));
+        $this->assertSame(MaterialRequestStatus::PENDING, $ticket->fresh()->materialRequests->last()->status);
+        $history = $ticket->fresh()->histories->last();
+        $this->assertSame(TicketAction::MATERIAL_DIAJUKAN_ULANG, $history->action);
+        $this->assertStringContainsString('ADP001 ADAPTOR 12 V 1 A × 1 pcs dari Gudang Tim Baim (cuma satu)', $history->notes);
+        // Nothing to fix any more, so the ticket closes to the technician again and a second resubmit is refused.
+        $this->get("/tickets/{$ticket->ticket_number}")->assertForbidden();
+        $this->post($resubmit, ['materials' => [['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 1]]])->assertForbidden();
+
+        // The rejected adaptors are free again; the resubmitted one stays held.
+        $this->actingAs($this->warehouse)->post("/gudang/{$own->id}/retur", ['item' => 'ADP001', 'quantity' => 3])->assertSessionHasErrors('quantity');
+        $this->post("/gudang/{$own->id}/retur", ['item' => 'ADP001', 'quantity' => 2])->assertSessionHasNoErrors();
     }
 
     public function test_one_resume_draws_on_several_crew_warehouses(): void

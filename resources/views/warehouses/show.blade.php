@@ -11,6 +11,25 @@
 
     <div class="grid gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">
+            @if ($rejectedTickets->isNotEmpty())
+                <section class="card border-rose-200 p-5">
+                    <h2 class="mb-1 flex items-center gap-2 font-semibold text-rose-700"><i data-lucide="refresh-cw" class="h-4 w-4"></i>Material Ditolak, Ajukan Ulang ({{ $rejectedTickets->count() }})</h2>
+                    <p class="mb-3 text-sm text-slate-500">Buka tiketnya, lalu isi ulang material yang terpakai.</p>
+                    <ul class="divide-y divide-slate-100 text-sm">
+                        @foreach ($rejectedTickets as $rejectedTicket)
+                            @php($rejected = $rejectedTicket->materialRequests->last())
+                            <li class="flex flex-wrap items-center justify-between gap-2 py-2">
+                                <span>
+                                    <a href="{{ route('tickets.show', $rejectedTicket) }}" class="font-mono font-semibold text-indigo-700 hover:underline">{{ $rejectedTicket->ticket_number }}</a>
+                                    · {{ $rejectedTicket->customer_name }}
+                                    <span class="block text-xs text-rose-700">Ditolak {{ $rejected->reviewer?->name ?? 'Gudang' }}: {{ $rejected->review_notes }}</span>
+                                </span>
+                                <a href="{{ route('tickets.show', $rejectedTicket) }}" class="btn-secondary text-xs">Ajukan Ulang</a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </section>
+            @endif
             @include('warehouses.partials.material-requests')
             @include('warehouses.partials.stock-table', ['title' => 'Stok'])
             @include('warehouses.partials.movements')

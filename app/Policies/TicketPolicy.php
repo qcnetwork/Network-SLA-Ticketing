@@ -13,7 +13,7 @@ class TicketPolicy
     public function view(User $user, Ticket $ticket): bool
     {
         if ($user->role === Role::TEKNISI) {
-            return $this->worksOn($user, $ticket) || $ticket->isSharedWith($user);
+            return $this->worksOn($user, $ticket) || $ticket->isSharedWith($user) || $this->resubmitMaterial($user, $ticket);
         }
         if ($user->role === Role::GUDANG) {
             return $ticket->materialRequests()->exists();
@@ -41,6 +41,18 @@ class TicketPolicy
     public function share(User $user, Ticket $ticket): bool
     {
         return $user->hasRole(Role::HELPDESK, Role::SPV);
+    }
+
+    /**
+     * Who may send material again after the warehouse rejected it: the crew, or Helpdesk on their behalf.
+     */
+    public function resubmitMaterial(User $user, Ticket $ticket): bool
+    {
+        if (! $user->hasRole(...TicketAction::MATERIAL_DIAJUKAN_ULANG->allowedRoles()) || ! $ticket->awaitsMaterialResubmission()) {
+            return false;
+        }
+
+        return $user->role !== Role::TEKNISI || $ticket->isAssignedTo($user);
     }
 
     private function worksOn(User $user, Ticket $ticket): bool
