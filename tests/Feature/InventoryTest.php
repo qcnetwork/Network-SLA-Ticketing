@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Enums\MaterialRequestStatus;
 use App\Enums\Role;
 use App\Enums\StockMovementType;
+use App\Enums\TicketAction;
 use App\Enums\TicketStatus;
 use App\Models\Item;
 use App\Models\Stock;
@@ -85,15 +87,69 @@ class InventoryTest extends TestCase
             'materials' => [['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 2, 'notes' => 'adaptor lama mati']],
         ])->assertSessionHasNoErrors();
 
+        // The resume only asks the warehouse: the technician's stock stays put until it is approved.
         $ticket->refresh();
         $this->assertSame(TicketStatus::MENUNGGU_KONFIRMASI, $ticket->status);
-        $this->assertSame(1, $this->quantity(Warehouse::of($this->technician), $this->adaptor));
-        $material = $ticket->materials->sole();
-        $this->assertSame(StockMovementType::PAKAI, $material->type);
-        $this->assertSame(2, $material->quantity);
+        $this->assertSame(3, $this->quantity(Warehouse::of($this->technician), $this->adaptor));
+        $this->assertTrue($ticket->materials->isEmpty());
+        $request = $ticket->materialRequests->sole();
+        $this->assertSame(MaterialRequestStatus::PENDING, $request->status);
         $this->assertStringContainsString('ADP001 ADAPTOR 12 V 1 A × 2 pcs dari Gudang Tim Baim (adaptor lama mati)', $ticket->histories->last()->notes);
 
-        $this->actingAs($this->warehouse)->get("/tickets/{$ticket->ticket_number}")->assertSee('Material Terpakai');
+        // The two adaptors are spoken for: another resume or a return can only use the one left.
+        $next = Ticket::factory()->status(TicketStatus::PERBAIKAN)->assignedTo($this->technician)->create(['repair_started_at' => now()]);
+        $this->post("/tickets/{$next->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI", [
+            'notes' => 'Ganti adaptor',
+            'materials' => [['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 2]],
+        ])->assertSessionHasErrors('materials');
+        $own = Warehouse::of($this->technician);
+        $this->actingAs($this->warehouse)->post("/gudang/{$own->id}/retur", ['item' => 'ADP001', 'quantity' => 2])->assertSessionHasErrors('quantity');
+
+        $this->get('/gudang')->assertOk()->assertSee('Pengajuan Material')->assertSee($ticket->ticket_number);
+        $this->get("/tickets/{$ticket->ticket_number}")->assertSee('Material Terpakai')->assertSee('Menunggu ACC Gudang');
+
+        $this->post("/gudang/pengajuan/{$request->id}/setujui", ['review_notes' => 'Sesuai'])->assertSessionHasNoErrors();
+        $this->assertSame(1, $this->quantity($own, $this->adaptor));
+        $material = $ticket->fresh()->materials->sole();
+        $this->assertSame(StockMovementType::PAKAI, $material->type);
+        $this->assertSame(2, $material->quantity);
+        $this->assertSame(MaterialRequestStatus::APPROVED, $request->fresh()->status);
+        $history = $ticket->fresh()->histories->last();
+        $this->assertSame(TicketAction::MATERIAL_DISETUJUI, $history->action);
+        $this->assertStringContainsString('Catatan Gudang: Sesuai', $history->notes);
+
+        // A decision is final.
+        $this->post("/gudang/pengajuan/{$request->id}/tolak", ['review_notes' => 'Salah'])->assertSessionHasErrors('material_request');
+        $this->assertSame(1, $this->quantity($own, $this->adaptor));
+        $this->get('/gudang')->assertDontSee('Pengajuan Material');
+    }
+
+    public function test_warehouse_rejects_material_and_stock_stays(): void
+    {
+        $own = Warehouse::of($this->technician);
+        Stock::query()->create(['warehouse_id' => $own->id, 'item_id' => $this->adaptor->id, 'quantity' => 3]);
+        $ticket = Ticket::factory()->status(TicketStatus::PERBAIKAN)->assignedTo($this->technician)->create(['repair_started_at' => now()]);
+        $this->actingAs($this->technician)->post("/tickets/{$ticket->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI", [
+            'notes' => 'Ganti adaptor',
+            'materials' => [['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 3]],
+        ])->assertSessionHasNoErrors();
+        $request = $ticket->materialRequests()->sole();
+
+        // Only the warehouse decides, and turning it down needs a reason.
+        $this->post("/gudang/pengajuan/{$request->id}/setujui")->assertForbidden();
+        $this->actingAs($this->userWithRole(Role::HELPDESK))->post("/gudang/pengajuan/{$request->id}/tolak", ['review_notes' => 'x'])->assertForbidden();
+        $this->actingAs($this->warehouse)->post("/gudang/pengajuan/{$request->id}/tolak")->assertSessionHasErrors('review_notes');
+
+        $this->post("/gudang/pengajuan/{$request->id}/tolak", ['review_notes' => 'Adaptor masih bagus, tidak perlu ganti'])->assertSessionHasNoErrors();
+        $this->assertSame(3, $this->quantity($own, $this->adaptor));
+        $this->assertSame(MaterialRequestStatus::REJECTED, $request->fresh()->status);
+        $this->assertTrue($ticket->materials()->doesntExist());
+        $history = $ticket->fresh()->histories->last();
+        $this->assertSame(TicketAction::MATERIAL_DITOLAK, $history->action);
+        $this->assertStringContainsString('Adaptor masih bagus', $history->notes);
+
+        // Rejected stock is free again.
+        $this->post("/gudang/{$own->id}/retur", ['item' => 'ADP001', 'quantity' => 3])->assertSessionHasNoErrors();
     }
 
     public function test_one_resume_draws_on_several_crew_warehouses(): void
@@ -121,11 +177,13 @@ class InventoryTest extends TestCase
             ['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 1],
             ['technician_id' => $partner->id, 'code' => 'KBL003', 'quantity' => 12],
         ]])->assertSessionHasNoErrors();
+        $this->actingAs($this->warehouse)->post("/gudang/pengajuan/{$ticket->materialRequests()->sole()->id}/setujui")->assertSessionHasNoErrors();
 
         $this->assertSame(1, $this->quantity(Warehouse::of($this->technician), $this->adaptor));
         $this->assertSame(18, $this->quantity(Warehouse::of($partner), $cable));
         $this->assertSame(30, $this->quantity(Warehouse::of($outsider), $cable));
         $notes = $ticket->fresh()->histories->last()->notes;
+        $this->assertStringContainsString('stok teknisi berkurang', $notes);
         $this->assertStringContainsString('ADP001 ADAPTOR 12 V 1 A × 1 pcs dari Gudang Tim Baim', $notes);
         $this->assertStringContainsString('KBL003 KABEL LAN GLOBAL × 12 meter dari Gudang Tim Dian', $notes);
     }

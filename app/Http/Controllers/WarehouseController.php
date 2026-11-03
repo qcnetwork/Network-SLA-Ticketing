@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\Role;
 use App\Models\Item;
+use App\Models\MaterialRequest;
 use App\Models\SerialUnit;
 use App\Models\StockMovement;
 use App\Models\User;
@@ -18,6 +19,8 @@ use Illuminate\View\View;
 
 class WarehouseController extends Controller
 {
+    private const REQUEST_DETAILS = ['ticket', 'requester', 'lines.item', 'lines.warehouse', 'lines.serialUnit'];
+
     public function __construct(private InventoryService $inventory) {}
 
     public function index(Request $request): View|RedirectResponse
@@ -32,6 +35,7 @@ class WarehouseController extends Controller
 
         return view('warehouses.index', [
             'main' => $main,
+            'materialRequests' => MaterialRequest::query()->pending()->with(self::REQUEST_DETAILS)->oldest('id')->get(),
             ...$this->stockPage($request, $main),
             'technicianWarehouses' => Warehouse::query()->technicians()->with('user')
                 ->withSum('stocks', 'quantity')->withCount(['stocks' => fn (Builder $q) => $q->where('quantity', '>', 0)])
@@ -55,6 +59,8 @@ class WarehouseController extends Controller
 
         return view('warehouses.show', [
             'warehouse' => $warehouse->load('user'),
+            'materialRequests' => MaterialRequest::query()->pending()->whereHas('lines', fn ($q) => $q->where('warehouse_id', $warehouse->id))
+                ->with(self::REQUEST_DETAILS)->oldest('id')->get(),
             ...$this->stockPage($request, $warehouse),
             'canManage' => $user->hasRole(Role::GUDANG, Role::SPV),
         ]);
@@ -120,6 +126,22 @@ class WarehouseController extends Controller
             'mac' => $serial->formattedMac(),
             'item' => $serial->item->label(),
         ]);
+    }
+
+    public function approveRequest(Request $request, MaterialRequest $materialRequest): RedirectResponse
+    {
+        $data = $request->validate(['review_notes' => ['nullable', 'string', 'max:255']]);
+        $this->inventory->approveRequest($materialRequest, $request->user(), $data['review_notes'] ?? null);
+
+        return back()->with('success', "Material tiket {$materialRequest->ticket->ticket_number} disetujui, stok teknisi sudah dikurangi");
+    }
+
+    public function rejectRequest(Request $request, MaterialRequest $materialRequest): RedirectResponse
+    {
+        $data = $request->validate(['review_notes' => ['required', 'string', 'max:255']], ['review_notes.required' => 'Tulis alasan penolakan']);
+        $this->inventory->rejectRequest($materialRequest, $request->user(), $data['review_notes']);
+
+        return back()->with('success', "Material tiket {$materialRequest->ticket->ticket_number} ditolak, stok teknisi tidak berubah");
     }
 
     public function receive(Request $request): RedirectResponse

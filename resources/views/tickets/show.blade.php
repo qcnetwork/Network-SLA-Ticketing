@@ -242,20 +242,12 @@
                             <div class="sm:col-span-2"><dt class="text-xs text-slate-500">{{ $label }}</dt><dd class="mt-1 rounded-lg bg-slate-50 p-3 whitespace-pre-line wrap-break-word">{{ $ticket->$field }}</dd></div>
                         @endif
                     @endforeach
-                    @if ($ticket->materials->isNotEmpty())
+                    @if ($ticket->materialRequests->isNotEmpty())
                         <div class="sm:col-span-2">
                             <dt class="text-xs text-slate-500">Material Terpakai</dt>
-                            <dd class="mt-1 divide-y divide-slate-100 rounded-lg bg-slate-50 px-3">
-                                @foreach ($ticket->materials as $material)
-                                    <div class="flex flex-wrap items-center justify-between gap-2 py-2">
-                                        <span><span class="font-mono text-xs text-slate-600">{{ $material->item->code }}</span> {{ $material->item->name }}
-                                            @if ($material->serialUnit)
-                                                <span class="block font-mono text-xs text-slate-600">SN {{ $material->serialUnit->serial_number }}{{ $material->serialUnit->mac ? ' · '.$material->serialUnit->formattedMac() : '' }}</span>
-                                            @endif
-                                            @if ($material->notes)<span class="text-xs text-slate-500">({{ $material->notes }})</span>@endif
-                                        </span>
-                                        <span class="text-xs text-slate-500"><span class="font-semibold text-slate-800">× {{ $material->quantity }} {{ $material->item->unit }}</span> · {{ $material->fromWarehouse?->name }}</span>
-                                    </div>
+                            <dd class="mt-1 space-y-2">
+                                @foreach ($ticket->materialRequests as $materialRequest)
+                                    @include('warehouses.partials.material-request', ['showTicket' => false])
                                 @endforeach
                             </dd>
                         </div>
@@ -543,7 +535,7 @@
                                 </div>
                             </template>
                             <p x-show="! lines.length" class="text-xs text-slate-400">
-                                {{ empty($crewStock) ? 'Teknisi belum memegang stok. Minta Warehouse mengirim barang dulu.' : 'Tidak ada material? Biarkan kosong.' }}
+                                {{ empty($crewStock) ? 'Teknisi belum memegang stok. Minta Warehouse mengirim barang dulu.' : 'Material diajukan ke Gudang; stok baru berkurang setelah di-ACC. Tidak ada material? Biarkan kosong.' }}
                             </p>
                             <x-field-error name="materials" />
                         </div>

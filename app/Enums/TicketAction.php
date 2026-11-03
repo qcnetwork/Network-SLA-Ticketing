@@ -26,6 +26,8 @@ enum TicketAction: string
     case LEPAS_GAMAS = 'LEPAS_GAMAS';
     case GAMAS_SELESAI = 'GAMAS_SELESAI';
     case TUTUP_OTOMATIS = 'TUTUP_OTOMATIS';
+    case MATERIAL_DISETUJUI = 'MATERIAL_DISETUJUI';
+    case MATERIAL_DITOLAK = 'MATERIAL_DITOLAK';
 
     /**
      * Whether the action is triggered from the ticket action panel. Ticket creation and
@@ -33,7 +35,7 @@ enum TicketAction: string
      */
     public function isPerformable(): bool
     {
-        return ! in_array($this, [self::TIKET_DIBUAT, self::UBAH_DATA_PELANGGAN, self::UBAH_PENANGANAN, self::GABUNG_GAMAS, self::LEPAS_GAMAS, self::GAMAS_SELESAI, self::TUTUP_OTOMATIS], true);
+        return ! in_array($this, [self::TIKET_DIBUAT, self::UBAH_DATA_PELANGGAN, self::UBAH_PENANGANAN, self::GABUNG_GAMAS, self::LEPAS_GAMAS, self::GAMAS_SELESAI, self::TUTUP_OTOMATIS, self::MATERIAL_DISETUJUI, self::MATERIAL_DITOLAK], true);
     }
 
     /**
@@ -61,6 +63,8 @@ enum TicketAction: string
             self::GABUNG_GAMAS, self::LEPAS_GAMAS => [Role::CS, Role::HELPDESK, Role::SPV],
             self::GAMAS_SELESAI => [Role::HELPDESK, Role::TEKNISI, Role::SPV],
             self::TUTUP_OTOMATIS => [],
+            // The warehouse signs off the material a repair resume reports before it leaves the technician's stock.
+            self::MATERIAL_DISETUJUI, self::MATERIAL_DITOLAK => [Role::GUDANG, Role::SPV],
         };
     }
 
@@ -89,6 +93,8 @@ enum TicketAction: string
             self::LEPAS_GAMAS => 'Dilepas dari Gamas',
             self::GAMAS_SELESAI => 'Gamas Selesai',
             self::TUTUP_OTOMATIS => 'Ditutup Otomatis',
+            self::MATERIAL_DISETUJUI => 'Material Disetujui Gudang',
+            self::MATERIAL_DITOLAK => 'Material Ditolak Gudang',
         };
     }
 }

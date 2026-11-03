@@ -56,7 +56,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/pelanggan/cari', [CustomerController::class, 'search'])->name('customers.search');
     });
 
-    Route::get('/arsip',[ArchiveController::class, 'index'])->middleware('role:HELPDESK,SPV,TEKNISI')->name('archive.index');
+    Route::get('/arsip', [ArchiveController::class, 'index'])->middleware('role:HELPDESK,SPV,TEKNISI')->name('archive.index');
 
     Route::middleware('role:GUDANG,SPV')->group(function () {
         Route::get('/gudang/barang', [ItemController::class, 'index'])->name('items.index');
@@ -70,6 +70,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/gudang/kirim-sn', [WarehouseController::class, 'sendSerials'])->name('warehouses.send-serials');
         Route::post('/gudang/{warehouse}/retur-sn', [WarehouseController::class, 'returnSerials'])->name('warehouses.return-serials');
         Route::get('/gudang/cek-sn', [WarehouseController::class, 'lookupSerial'])->name('warehouses.lookup-serial');
+        Route::post('/gudang/pengajuan/{materialRequest}/setujui', [WarehouseController::class, 'approveRequest'])->name('material-requests.approve');
+        Route::post('/gudang/pengajuan/{materialRequest}/tolak', [WarehouseController::class, 'rejectRequest'])->name('material-requests.reject');
     });
     Route::middleware('role:GUDANG,SPV,HELPDESK,TEKNISI')->group(function () {
         Route::get('/gudang', [WarehouseController::class, 'index'])->name('warehouses.index');

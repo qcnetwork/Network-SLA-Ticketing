@@ -2,8 +2,12 @@
 
 namespace App\Services;
 
+use App\Enums\MaterialRequestStatus;
 use App\Enums\StockMovementType;
+use App\Enums\TicketAction;
 use App\Models\Item;
+use App\Models\MaterialRequest;
+use App\Models\MaterialRequestLine;
 use App\Models\SerialUnit;
 use App\Models\Stock;
 use App\Models\StockMovement;
@@ -17,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * Stock moves only through here, so every change in a warehouse has a matching movement row:
  * material comes into the main warehouse, goes out to a technician, comes back as a return,
- * or is used up on a ticket's repair. Items that track serials (modems) move one scanned unit
+ * or is used up on a ticket's repair once the warehouse approves the resume that reports it. Items that track serials (modems) move one scanned unit
  * at a time, so the warehouse always knows where each SN is.
  */
 class InventoryService
@@ -43,7 +47,12 @@ class InventoryService
             throw ValidationException::withMessages(['warehouse_id' => 'Retur hanya dari gudang teknisi']);
         }
 
-        return DB::transaction(fn () => $this->move(StockMovementType::RETUR, $item, $quantity, $from, Warehouse::main(), $actor, $notes));
+        return DB::transaction(function () use ($item, $quantity, $from, $actor, $notes) {
+            // Stock a pending resume claims stays with the technician until the warehouse decides on it.
+            $this->ensureAvailable($from, $item, $quantity, 'quantity');
+
+            return $this->move(StockMovementType::RETUR, $item, $quantity, $from, Warehouse::main(), $actor, $notes);
+        });
     }
 
     /**
@@ -117,48 +126,89 @@ class InventoryService
     }
 
     /**
-     * Take the material listed in the repair resume out of the crew's warehouses. Each line names the
-     * crew member whose stock it comes from, so one resume can draw on several technicians. A modem
-     * line names the SN installed, which leaves the warehouse and stays on the ticket.
+     * Turn the material listed in the repair resume into a request for the warehouse. Each line names the
+     * crew member whose stock it comes from, so one resume can draw on several technicians. Nothing leaves
+     * a warehouse yet: the lines only hold that stock (and a modem's SN) until the warehouse approves.
      * Runs inside the ticket transition's transaction, so a short stock cancels the whole report.
      *
      * @param  array<array{technician_id?: mixed, code?: ?string, quantity?: mixed, serial?: ?string, notes?: ?string}>  $lines
      * @return Collection<int, string> one line per material, for the ticket history
      */
-    public function consumeForTicket(Ticket $ticket, array $lines, User $actor): Collection
+    public function requestForTicket(Ticket $ticket, array $lines, User $actor): Collection
     {
         $lines = collect($lines)->filter(fn ($line) => trim((string) ($line['code'] ?? '')) !== '')->values();
         if ($lines->isEmpty()) {
             return collect();
         }
 
-        return DB::transaction(fn () => $lines->map(function (array $line) use ($ticket, $actor) {
-            $item = $this->findItem($line['code'], 'materials');
-            $holder = $ticket->technicians->firstWhere('id', (int) ($line['technician_id'] ?? 0))
-                ?? throw ValidationException::withMessages(['materials' => "Pilih gudang teknisi untuk {$item->code}"]);
-            $warehouse = Warehouse::of($holder);
-            $notes = trim((string) ($line['notes'] ?? '')) ?: null;
+        return DB::transaction(function () use ($ticket, $lines, $actor) {
+            $request = $ticket->materialRequests()->create(['requested_by' => $actor->id, 'status' => MaterialRequestStatus::PENDING]);
 
-            if ($item->tracks_serial) {
-                $serial = $this->unitIn(SerialUnit::normalizeSerial($line['serial'] ?? ''), $warehouse, 'materials', $item);
-                $this->move(StockMovementType::PAKAI, $item, 1, $warehouse, null, $actor, $notes, $ticket, $serial);
-                $serial->update(['warehouse_id' => null, 'ticket_id' => $ticket->id]);
+            return $lines->map(function (array $line) use ($ticket, $request) {
+                $item = $this->findItem($line['code'], 'materials');
+                $holder = $ticket->technicians->firstWhere('id', (int) ($line['technician_id'] ?? 0))
+                    ?? throw ValidationException::withMessages(['materials' => "Pilih gudang teknisi untuk {$item->code}"]);
+                $warehouse = Warehouse::of($holder);
+                $notes = trim((string) ($line['notes'] ?? '')) ?: null;
+                $serial = null;
 
-                return "{$item->code} {$item->name} SN {$serial->serial_number} dari {$warehouse->name}".($notes ? " ({$notes})" : '');
+                if ($item->tracks_serial) {
+                    $serial = $this->unitIn(SerialUnit::normalizeSerial($line['serial'] ?? ''), $warehouse, 'materials', $item);
+                    $this->ensureNotRequested($serial, 'materials');
+                    $quantity = 1;
+                } else {
+                    $quantity = (int) ($line['quantity'] ?? 0);
+                    if ($quantity < 1) {
+                        throw ValidationException::withMessages(['materials' => "Jumlah {$item->code} minimal 1"]);
+                    }
+                    $this->ensureAvailable($warehouse, $item, $quantity, 'materials');
+                }
+
+                return $request->lines()->create([
+                    'item_id' => $item->id,
+                    'warehouse_id' => $warehouse->id,
+                    'serial_unit_id' => $serial?->id,
+                    'quantity' => $quantity,
+                    'notes' => $notes ? mb_substr($notes, 0, 255) : null,
+                ])->setRelations(['item' => $item, 'warehouse' => $warehouse, 'serialUnit' => $serial])->describe();
+            });
+        });
+    }
+
+    /**
+     * The warehouse accepts a repair resume's material: each line now leaves its technician's warehouse,
+     * and a modem's SN moves onto the ticket as installed.
+     */
+    public function approveRequest(MaterialRequest $request, User $actor, ?string $notes = null): MaterialRequest
+    {
+        return DB::transaction(function () use ($request, $actor, $notes) {
+            $request = $this->lockPending($request);
+            $ticket = $request->ticket;
+            foreach ($request->lines as $line) {
+                if ($line->serialUnit) {
+                    $serial = $this->unitIn($line->serialUnit->serial_number, $line->warehouse, 'material_request', $line->item);
+                    $this->move(StockMovementType::PAKAI, $line->item, 1, $line->warehouse, null, $actor, $line->notes, $ticket, $serial);
+                    $serial->update(['warehouse_id' => null, 'ticket_id' => $ticket->id]);
+
+                    continue;
+                }
+                try {
+                    $this->move(StockMovementType::PAKAI, $line->item, $line->quantity, $line->warehouse, null, $actor, $line->notes, $ticket);
+                } catch (ValidationException $e) {
+                    throw ValidationException::withMessages(['material_request' => $e->errors()['quantity'] ?? $e->getMessage()]);
+                }
             }
 
-            $quantity = (int) ($line['quantity'] ?? 0);
-            if ($quantity < 1) {
-                throw ValidationException::withMessages(['materials' => "Jumlah {$item->code} minimal 1"]);
-            }
-            try {
-                $this->move(StockMovementType::PAKAI, $item, $quantity, $warehouse, null, $actor, $notes, $ticket);
-            } catch (ValidationException $e) {
-                throw ValidationException::withMessages(['materials' => $e->errors()['quantity'] ?? $e->getMessage()]);
-            }
+            return $this->review($request, MaterialRequestStatus::APPROVED, TicketAction::MATERIAL_DISETUJUI, $actor, $notes);
+        });
+    }
 
-            return "{$item->code} {$item->name} × {$quantity} {$item->unit} dari {$warehouse->name}".($notes ? " ({$notes})" : '');
-        }));
+    /**
+     * The warehouse turns the material down: the technician's stock stays as it was.
+     */
+    public function rejectRequest(MaterialRequest $request, User $actor, string $reason): MaterialRequest
+    {
+        return DB::transaction(fn () => $this->review($this->lockPending($request), MaterialRequestStatus::REJECTED, TicketAction::MATERIAL_DITOLAK, $actor, $reason));
     }
 
     /**
@@ -203,6 +253,68 @@ class InventoryService
         return ['created' => $created, 'updated' => $updated];
     }
 
+    private function lockPending(MaterialRequest $request): MaterialRequest
+    {
+        $request = MaterialRequest::query()->lockForUpdate()->with(['ticket', 'lines.item', 'lines.warehouse', 'lines.serialUnit'])->findOrFail($request->id);
+        if (! $request->isPending()) {
+            throw ValidationException::withMessages(['material_request' => "Pengajuan ini sudah {$request->status->label()}"]);
+        }
+
+        return $request;
+    }
+
+    private function review(MaterialRequest $request, MaterialRequestStatus $status, TicketAction $action, User $actor, ?string $notes): MaterialRequest
+    {
+        $notes = trim((string) $notes) ?: null;
+        $request->update([
+            'status' => $status,
+            'reviewed_by' => $actor->id,
+            'reviewed_at' => now(),
+            'review_notes' => $notes ? mb_substr($notes, 0, 255) : null,
+        ]);
+        $ticket = $request->ticket;
+        $ticket->histories()->create([
+            'user_id' => $actor->id,
+            'actor_name' => $actor->name,
+            'action' => $action,
+            'from_status' => $ticket->status,
+            'to_status' => $ticket->status,
+            'notes' => ($status === MaterialRequestStatus::APPROVED
+                    ? "Material disetujui oleh {$actor->name}, stok teknisi berkurang:\n"
+                    : "Material ditolak oleh {$actor->name}, stok teknisi tidak berubah:\n")
+                .$request->lines->map(fn (MaterialRequestLine $line) => "• {$line->describe()}")->implode("\n")
+                .($notes ? "\nCatatan Gudang: {$notes}" : ''),
+        ]);
+
+        return $request;
+    }
+
+    /**
+     * Stock in a warehouse that a pending resume has already claimed.
+     */
+    private function requested(Warehouse $warehouse, Item $item): int
+    {
+        return (int) MaterialRequestLine::query()->pending()->where('warehouse_id', $warehouse->id)->where('item_id', $item->id)->sum('quantity');
+    }
+
+    private function ensureAvailable(Warehouse $warehouse, Item $item, int $quantity, string $field): void
+    {
+        $free = $this->stock($warehouse, $item)->quantity - $this->requested($warehouse, $item);
+        if ($free < $quantity) {
+            throw ValidationException::withMessages([
+                $field => "Stok {$item->code} di {$warehouse->name} tidak cukup (sisa {$free} {$item->unit} yang belum diajukan)",
+            ]);
+        }
+    }
+
+    private function ensureNotRequested(SerialUnit $serial, string $field): void
+    {
+        $line = MaterialRequestLine::query()->pending()->where('serial_unit_id', $serial->id)->with('request.ticket')->first();
+        if ($line) {
+            throw ValidationException::withMessages([$field => "SN {$serial->serial_number} sudah diajukan di tiket {$line->request->ticket->ticket_number}, menunggu ACC Gudang"]);
+        }
+    }
+
     /**
      * @param  array<string>  $serials
      */
@@ -214,6 +326,7 @@ class InventoryService
         }
         foreach ($serials as $number) {
             $serial = $this->unitIn($number, $from, 'serials');
+            $this->ensureNotRequested($serial, 'serials');
             $this->move($type, $serial->item, 1, $from, $to, $actor, $notes, serial: $serial);
             $serial->update(['warehouse_id' => $to->id]);
         }

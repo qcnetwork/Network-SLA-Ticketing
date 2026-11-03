@@ -2,7 +2,7 @@
     <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
             <h1 class="text-2xl font-bold text-slate-900">Gudang</h1>
-            <p class="text-sm text-slate-500">Gudang Utama menampung semua stok kantor. Barang yang dikirim ke teknisi pindah ke gudang teknisi, lalu berkurang saat dipakai di Resume Perbaikan.</p>
+            <p class="text-sm text-slate-500">Gudang Utama menampung semua stok kantor. Barang yang dikirim ke teknisi pindah ke gudang teknisi, lalu berkurang saat material di Resume Perbaikan di-ACC Gudang.</p>
         </div>
         @if ($canManage)
             <a href="{{ route('items.index') }}" class="btn-secondary"><i data-lucide="table" class="h-4 w-4"></i>Master Barang</a>
@@ -46,6 +46,7 @@
                     </ul>
                 </section>
             @endif
+            @include('warehouses.partials.material-requests')
             @include('warehouses.partials.stock-table', ['title' => $main->name])
             @include('warehouses.partials.movements')
         </div>

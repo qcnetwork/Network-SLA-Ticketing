@@ -105,11 +105,19 @@ class Ticket extends Model
     }
 
     /**
-     * Material the technician reported using in the repair resume.
+     * Material that left a technician's warehouse for this ticket, once the warehouse approved the resume.
      */
     public function materials(): HasMany
     {
         return $this->hasMany(StockMovement::class)->where('type', StockMovementType::PAKAI)->orderBy('id');
+    }
+
+    /**
+     * Material reported in each repair resume, with the warehouse's approval.
+     */
+    public function materialRequests(): HasMany
+    {
+        return $this->hasMany(MaterialRequest::class)->orderBy('id');
     }
 
     public function attachments(): HasMany

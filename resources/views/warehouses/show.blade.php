@@ -6,11 +6,12 @@
     @endunless
     <div class="mb-6">
         <h1 class="text-2xl font-bold text-slate-900">{{ $warehouse->name }}</h1>
-        <p class="text-sm text-slate-500">Stok yang dibawa {{ $warehouse->user?->name ?? 'teknisi' }}. Berkurang otomatis saat material diisi di Resume Perbaikan.</p>
+        <p class="text-sm text-slate-500">Stok yang dibawa {{ $warehouse->user?->name ?? 'teknisi' }}. Berkurang saat material di Resume Perbaikan di-ACC Gudang.</p>
     </div>
 
     <div class="grid gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">
+            @include('warehouses.partials.material-requests')
             @include('warehouses.partials.stock-table', ['title' => 'Stok'])
             @include('warehouses.partials.movements')
         </div>

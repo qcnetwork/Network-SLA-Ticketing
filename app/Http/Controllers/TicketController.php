@@ -10,6 +10,7 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Incident;
+use App\Models\MaterialRequestLine;
 use App\Models\ModemType;
 use App\Models\SerialUnit;
 use App\Models\Stock;
@@ -90,7 +91,7 @@ class TicketController extends Controller
     {
         $this->authorize('view', $ticket);
 
-        $ticket->load(['creator', 'helpdesk', 'technicians', 'incident', 'histories.user', 'histories.attachments', 'materials.item', 'materials.fromWarehouse', 'materials.serialUnit']);
+        $ticket->load(['creator', 'helpdesk', 'technicians', 'incident', 'histories.user', 'histories.attachments', 'materialRequests.lines.item', 'materialRequests.lines.warehouse', 'materialRequests.lines.serialUnit', 'materialRequests.requester', 'materialRequests.reviewer']);
         $user = request()->user();
         $isCrew = $ticket->status === TicketStatus::PERBAIKAN && $ticket->isAssignedTo($user);
 
@@ -126,16 +127,21 @@ class TicketController extends Controller
 
     /**
      * What each crew member carries, keyed by their user id, with the SNs of every modem they hold.
+     * Stock already claimed by a resume still waiting for the warehouse is left out.
      *
      * @return array<int, list<array{code: string, name: string, quantity: int, serial: bool, units: list<array{sn: string, mac: ?string}>}>>
      */
     private function crewStock(Ticket $ticket): array
     {
-        $units = SerialUnit::query()->whereHas('warehouse', fn ($q) => $q->whereIn('user_id', $ticket->technicians->modelKeys()))
+        $crew = fn ($q) => $q->whereIn('user_id', $ticket->technicians->modelKeys());
+        $requested = MaterialRequestLine::query()->pending()->whereHas('warehouse', $crew)->get();
+        $claimed = $requested->groupBy(fn (MaterialRequestLine $line) => "{$line->warehouse_id}:{$line->item_id}")->map->sum('quantity');
+        $units = SerialUnit::query()->whereHas('warehouse', $crew)->whereNotIn('id', $requested->pluck('serial_unit_id')->filter())
             ->orderBy('serial_number')->get()->groupBy(fn (SerialUnit $unit) => "{$unit->warehouse_id}:{$unit->item_id}");
 
-        return Stock::query()->with(['item', 'warehouse'])->where('quantity', '>', 0)
-            ->whereHas('warehouse', fn ($q) => $q->whereIn('user_id', $ticket->technicians->modelKeys()))->get()
+        return Stock::query()->with(['item', 'warehouse'])->where('quantity', '>', 0)->whereHas('warehouse', $crew)->get()
+            ->each(fn (Stock $stock) => $stock->quantity -= $claimed["{$stock->warehouse_id}:{$stock->item_id}"] ?? 0)
+            ->filter(fn (Stock $stock) => $stock->quantity > 0)
             ->sortBy('item.code')
             ->groupBy(fn (Stock $stock) => $stock->warehouse->user_id)
             ->map(fn ($stocks) => $stocks->map(fn (Stock $stock) => [

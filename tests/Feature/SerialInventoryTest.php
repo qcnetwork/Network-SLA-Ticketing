@@ -105,14 +105,26 @@ class SerialInventoryTest extends TestCase
 
         $this->post($url, ['notes' => 'Ganti modem', 'materials' => [$line + ['serial' => 'sn-a', 'notes' => 'ZTE F609 lama ditarik']]])
             ->assertSessionHasNoErrors();
+        $this->assertStringContainsString('MDM031 FIBERHOME HG6145D2 SN SN-A dari Gudang Tim Rasyid (ZTE F609 lama ditarik)', $ticket->fresh()->histories->last()->notes);
+
+        // Until the warehouse approves, the modem stays with the technician and cannot go anywhere else.
+        $own = Warehouse::of($this->technician);
+        $this->assertSame($own->id, SerialUnit::query()->where('serial_number', 'SN-A')->value('warehouse_id'));
+        $this->assertSame(2, $this->quantity($own));
+        $next = Ticket::factory()->status(TicketStatus::PERBAIKAN)->assignedTo($this->technician)->create(['repair_started_at' => now()]);
+        $this->get("/tickets/{$next->ticket_number}")->assertSee('SN-B')->assertDontSee('SN-A');
+        $this->post("/tickets/{$next->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI", ['notes' => 'Ganti modem', 'materials' => [$line + ['serial' => 'SN-A']]])
+            ->assertSessionHasErrors('materials');
+        $this->actingAs($this->warehouse)->post("/gudang/{$own->id}/retur-sn", ['serials' => [['sn' => 'SN-A']]])->assertSessionHasErrors('serials');
+
+        $this->post("/gudang/pengajuan/{$ticket->materialRequests()->sole()->id}/setujui")->assertSessionHasNoErrors();
 
         $unit = SerialUnit::query()->where('serial_number', 'SN-A')->sole();
         $this->assertNull($unit->warehouse_id);
         $this->assertSame($ticket->id, $unit->ticket_id);
         $this->assertSame(1, $this->quantity(Warehouse::of($this->technician)));
-        $this->assertStringContainsString('MDM031 FIBERHOME HG6145D2 SN SN-A dari Gudang Tim Rasyid (ZTE F609 lama ditarik)', $ticket->fresh()->histories->last()->notes);
 
-        $this->actingAs($this->warehouse)->get("/tickets/{$ticket->ticket_number}")->assertSee('SN SN-A · 28:6D:DA:0C:D4:60');
+        $this->get("/tickets/{$ticket->ticket_number}")->assertSee('SN SN-A · 28:6D:DA:0C:D4:60');
         $this->get('/gudang?q=SN-A')->assertSee("Terpasang · {$ticket->ticket_number}");
     }
 

@@ -258,9 +258,9 @@ class TicketWorkflowService
                     $ticket->status = TicketStatus::MENUNGGU_KONFIRMASI;
                     $ticket->technician_notes = $notes ?? 'Perbaikan fisik di lokasi telah selesai.';
                     $ticket->resolved_at = $now;
-                    $materials = $this->inventory->consumeForTicket($ticket, $data['materials'] ?? [], $actor);
+                    $materials = $this->inventory->requestForTicket($ticket, $data['materials'] ?? [], $actor);
                     $description = "Teknisi [{$this->repairCrew($ticket, $actor)}] menyelesaikan perbaikan: {$ticket->technician_notes}"
-                        .($materials->isNotEmpty() ? "\nMaterial terpakai:\n".$materials->map(fn (string $line) => "• {$line}")->implode("\n") : '')
+                        .($materials->isNotEmpty() ? "\nMaterial terpakai (menunggu ACC Gudang, stok belum berkurang):\n".$materials->map(fn (string $line) => "• {$line}")->implode("\n") : '')
                         .$this->recordedOnBehalf($actor);
                     break;
 
