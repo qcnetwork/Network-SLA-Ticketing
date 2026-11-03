@@ -117,8 +117,9 @@ class TicketController extends Controller
             'shareDurations' => TicketShare::DURATIONS,
             'ticket' => $ticket,
             'technicians' => User::technicians()->get(),
-            // What the repair crew carries, offered in the repair resume's material list.
-            'crewStock' => $ticket->status === TicketStatus::PERBAIKAN || $user->can('resubmitMaterial', $ticket) ? $this->crewStock($ticket) : [],
+            // What every technician carries, offered in the repair resume's material list.
+            ...($ticket->status === TicketStatus::PERBAIKAN || $user->can('resubmitMaterial', $ticket)
+                ? $this->technicianStock($ticket) : ['crewStock' => [], 'stockHolders' => []]),
             'flow' => [
                 TicketStatus::PROSES_CS,
                 TicketStatus::ANTRIAN_HELPDESK,
@@ -139,33 +140,42 @@ class TicketController extends Controller
     }
 
     /**
-     * What each crew member carries, keyed by their user id, with the SNs of every modem they hold.
-     * Stock already claimed by a resume still waiting for the warehouse is left out.
+     * What each technician carries, keyed by their user id, with the SNs of every modem they hold, and the
+     * technicians to pick from (the ticket's crew first). Material may come from any technician's stock, e.g.
+     * a teammate who handed over a modem on site. Quantities stay out of the page: the resume only names
+     * what was used. Stock already claimed by a resume still waiting for the warehouse is left out.
      *
-     * @return array<int, list<array{code: string, name: string, quantity: int, serial: bool, units: list<array{sn: string, mac: ?string}>}>>
+     * @return array{crewStock: array<int, list<array{code: string, name: string, serial: bool, units: list<array{sn: string, mac: ?string}>}>>, stockHolders: list<array{id: int, name: string}>}
      */
-    private function crewStock(Ticket $ticket): array
+    private function technicianStock(Ticket $ticket): array
     {
-        $crew = fn ($q) => $q->whereIn('user_id', $ticket->technicians->modelKeys());
-        $requested = MaterialRequestLine::query()->pending()->whereHas('warehouse', $crew)->get();
+        $technicianWarehouse = fn ($q) => $q->whereHas('user', fn ($user) => $user->where('role', Role::TEKNISI));
+        $requested = MaterialRequestLine::query()->pending()->whereHas('warehouse', $technicianWarehouse)->get();
         $claimed = $requested->groupBy(fn (MaterialRequestLine $line) => "{$line->warehouse_id}:{$line->item_id}")->map->sum('quantity');
-        $units = SerialUnit::query()->whereHas('warehouse', $crew)->whereNotIn('id', $requested->pluck('serial_unit_id')->filter())
-            ->orderBy('serial_number')->get()->groupBy(fn (SerialUnit $unit) => "{$unit->warehouse_id}:{$unit->item_id}");
+        $units = SerialUnit::query()->whereHas('warehouse', $technicianWarehouse)->whereNotIn('id', $requested->pluck('serial_unit_id')->filter())
+            ->orderBy('serial_number')->get(['warehouse_id', 'item_id', 'serial_number', 'mac'])
+            ->groupBy(fn (SerialUnit $unit) => "{$unit->warehouse_id}:{$unit->item_id}");
 
-        return Stock::query()->with(['item', 'warehouse'])->where('quantity', '>', 0)->whereHas('warehouse', $crew)->get()
+        $stock = Stock::query()->with(['item', 'warehouse.user'])->where('quantity', '>', 0)->whereHas('warehouse', $technicianWarehouse)->get()
             ->each(fn (Stock $stock) => $stock->quantity -= $claimed["{$stock->warehouse_id}:{$stock->item_id}"] ?? 0)
             ->filter(fn (Stock $stock) => $stock->quantity > 0)
             ->sortBy('item.code')
-            ->groupBy(fn (Stock $stock) => $stock->warehouse->user_id)
+            ->groupBy(fn (Stock $stock) => $stock->warehouse->user_id);
+        $holders = $ticket->technicians
+            ->concat($stock->map(fn ($stocks) => $stocks->first()->warehouse->user)->sortBy('name'))
+            ->unique('id')->filter(fn (User $technician) => $stock->has($technician->id))
+            ->map(fn (User $technician) => ['id' => $technician->id, 'name' => $technician->name.($ticket->isAssignedTo($technician) ? ' · ditugaskan' : '')])
+            ->values()->all();
+
+        return ['stockHolders' => $holders, 'crewStock' => $stock
             ->map(fn ($stocks) => $stocks->map(fn (Stock $stock) => [
                 'code' => $stock->item->code,
                 'name' => $stock->item->name,
-                'quantity' => $stock->quantity,
                 'serial' => $stock->item->tracks_serial,
                 'units' => ($units["{$stock->warehouse_id}:{$stock->item_id}"] ?? collect())
                     ->map(fn (SerialUnit $unit) => ['sn' => $unit->serial_number, 'mac' => $unit->formattedMac()])->values()->all(),
             ])->values()->all())
-            ->all();
+            ->all()];
     }
 
     public function perform(Request $request, Ticket $ticket, string $action): RedirectResponse

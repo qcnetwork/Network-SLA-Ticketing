@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\MaterialRequestStatus;
+use App\Enums\Role;
 use App\Enums\StockMovementType;
 use App\Enums\TicketAction;
 use App\Models\Item;
@@ -127,7 +128,7 @@ class InventoryService
 
     /**
      * Turn the material listed in the repair resume into a request for the warehouse. Each line names the
-     * crew member whose stock it comes from, so one resume can draw on several technicians. Nothing leaves
+     * technician whose stock it comes from (not only the ticket's crew), so one resume can draw on several. Nothing leaves
      * a warehouse yet: the lines only hold that stock (and a modem's SN) until the warehouse approves.
      * Runs inside the ticket transition's transaction, so a short stock cancels the whole report.
      *
@@ -144,9 +145,9 @@ class InventoryService
         return DB::transaction(function () use ($ticket, $lines, $actor) {
             $request = $ticket->materialRequests()->create(['requested_by' => $actor->id, 'status' => MaterialRequestStatus::PENDING]);
 
-            return $lines->map(function (array $line) use ($ticket, $request) {
+            return $lines->map(function (array $line) use ($request) {
                 $item = $this->findItem($line['code'], 'materials');
-                $holder = $ticket->technicians->firstWhere('id', (int) ($line['technician_id'] ?? 0))
+                $holder = User::query()->where('role', Role::TEKNISI)->find((int) ($line['technician_id'] ?? 0))
                     ?? throw ValidationException::withMessages(['materials' => "Pilih gudang teknisi untuk {$item->code}"]);
                 $warehouse = Warehouse::of($holder);
                 $notes = trim((string) ($line['notes'] ?? '')) ?: null;
@@ -161,7 +162,7 @@ class InventoryService
                     if ($quantity < 1) {
                         throw ValidationException::withMessages(['materials' => "Jumlah {$item->code} minimal 1"]);
                     }
-                    $this->ensureAvailable($warehouse, $item, $quantity, 'materials');
+                    $this->ensureAvailable($warehouse, $item, $quantity, 'materials', showLeft: false);
                 }
 
                 return $request->lines()->create([
@@ -327,12 +328,15 @@ class InventoryService
         return (int) MaterialRequestLine::query()->pending()->where('warehouse_id', $warehouse->id)->where('item_id', $item->id)->sum('quantity');
     }
 
-    private function ensureAvailable(Warehouse $warehouse, Item $item, int $quantity, string $field): void
+    /**
+     * The repair resume keeps stock counts from technicians, so its message leaves out what is left.
+     */
+    private function ensureAvailable(Warehouse $warehouse, Item $item, int $quantity, string $field, bool $showLeft = true): void
     {
         $free = $this->stock($warehouse, $item)->quantity - $this->requested($warehouse, $item);
         if ($free < $quantity) {
             throw ValidationException::withMessages([
-                $field => "Stok {$item->code} di {$warehouse->name} tidak cukup (sisa {$free} {$item->unit} yang belum diajukan)",
+                $field => "Stok {$item->code} di {$warehouse->name} tidak cukup".($showLeft ? " (sisa {$free} {$item->unit} yang belum diajukan)" : ''),
             ]);
         }
     }

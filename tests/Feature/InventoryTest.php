@@ -189,17 +189,27 @@ class InventoryTest extends TestCase
         $cable = Item::query()->create(['code' => 'KBL003', 'name' => 'KABEL LAN GLOBAL', 'unit' => 'meter']);
         Stock::query()->create(['warehouse_id' => Warehouse::of($this->technician)->id, 'item_id' => $this->adaptor->id, 'quantity' => 2]);
         Stock::query()->create(['warehouse_id' => Warehouse::of($partner)->id, 'item_id' => $cable->id, 'quantity' => 30]);
-        $outsider = $this->userWithRole(Role::TEKNISI);
+        $outsider = $this->userWithRole(Role::TEKNISI, ['name' => 'Tim Zaki']);
         Stock::query()->create(['warehouse_id' => Warehouse::of($outsider)->id, 'item_id' => $cable->id, 'quantity' => 30]);
         $ticket = Ticket::factory()->status(TicketStatus::PERBAIKAN)->assignedTo($this->technician, $partner)->create(['repair_started_at' => now()]);
         $helpdesk = $this->userWithRole(Role::HELPDESK);
         $url = "/tickets/{$ticket->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI";
 
-        // Only the crew's own warehouses can be drawn on, and each line needs one.
+        // Any technician's warehouse can be drawn on, crew first, without showing how much is left.
+        $this->actingAs($this->technician)->get("/tickets/{$ticket->ticket_number}")->assertOk()
+            ->assertViewHas('stockHolders', [
+                ['id' => $this->technician->id, 'name' => 'Tim Baim · ditugaskan'],
+                ['id' => $partner->id, 'name' => 'Tim Dian · ditugaskan'],
+                ['id' => $outsider->id, 'name' => 'Tim Zaki'],
+            ])
+            ->assertViewHas('crewStock', fn (array $stock) => $stock[$outsider->id] === [['code' => 'KBL003', 'name' => 'KABEL LAN GLOBAL', 'serial' => false, 'units' => []]]);
+        // Each line needs a technician's warehouse.
         $this->actingAs($helpdesk)->post($url, ['notes' => 'Ganti adaptor', 'materials' => [['code' => 'KBL003', 'quantity' => 5]]])
             ->assertSessionHasErrors('materials');
-        $this->post($url, ['notes' => 'Ganti adaptor', 'materials' => [['technician_id' => $outsider->id, 'code' => 'KBL003', 'quantity' => 5]]])
+        $this->post($url, ['notes' => 'Ganti adaptor', 'materials' => [['technician_id' => $helpdesk->id, 'code' => 'KBL003', 'quantity' => 5]]])
             ->assertSessionHasErrors('materials');
+        $this->post($url, ['notes' => 'Ganti adaptor', 'materials' => [['technician_id' => $outsider->id, 'code' => 'KBL003', 'quantity' => 50]]])
+            ->assertSessionHasErrors(['materials' => "Stok KBL003 di Gudang {$outsider->name} tidak cukup"]);
         // The partner does not carry adaptors.
         $this->post($url, ['notes' => 'Ganti adaptor', 'materials' => [['technician_id' => $partner->id, 'code' => 'ADP001', 'quantity' => 1]]])
             ->assertSessionHasErrors('materials');
@@ -207,12 +217,13 @@ class InventoryTest extends TestCase
         $this->post($url, ['notes' => 'Ganti adaptor dan tarik kabel', 'materials' => [
             ['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 1],
             ['technician_id' => $partner->id, 'code' => 'KBL003', 'quantity' => 12],
+            ['technician_id' => $outsider->id, 'code' => 'KBL003', 'quantity' => 5],
         ]])->assertSessionHasNoErrors();
         $this->actingAs($this->warehouse)->post("/gudang/pengajuan/{$ticket->materialRequests()->sole()->id}/setujui")->assertSessionHasNoErrors();
 
         $this->assertSame(1, $this->quantity(Warehouse::of($this->technician), $this->adaptor));
         $this->assertSame(18, $this->quantity(Warehouse::of($partner), $cable));
-        $this->assertSame(30, $this->quantity(Warehouse::of($outsider), $cable));
+        $this->assertSame(25, $this->quantity(Warehouse::of($outsider), $cable));
         $notes = $ticket->fresh()->histories->last()->notes;
         $this->assertStringContainsString('stok teknisi berkurang', $notes);
         $this->assertStringContainsString('ADP001 ADAPTOR 12 V 1 A × 1 pcs dari Gudang Tim Baim', $notes);

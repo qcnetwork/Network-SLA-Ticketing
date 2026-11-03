@@ -25,9 +25,9 @@
         $isFieldTechnician = auth()->user()->role === App\Enums\Role::TEKNISI;
         $materialForm = [
             'lines' => array_values(old('materials', [])),
-            'technicians' => $ticket->technicians->map->only(['id', 'name'])->values(),
+            'technicians' => $stockHolders,
             'stock' => (object) $crewStock,
-            'defaultTechnician' => $isFieldTechnician ? auth()->id() : ($ticket->technicians->count() === 1 ? $ticket->technicians->first()->id : ''),
+            'defaultTechnician' => $isFieldTechnician && isset($crewStock[auth()->id()]) ? auth()->id() : (count($stockHolders) === 1 ? $stockHolders[0]['id'] : ''),
         ];
         // A new resume would carry its own material, so the resubmit form waits until the repair is reported.
         $canResubmitMaterial = auth()->user()->can('resubmitMaterial', $ticket) && ! ($canRepair && $ticket->repair_started_at);

@@ -1,6 +1,6 @@
 /**
- * Material lines on the repair resume. Each line picks a crew member's warehouse and then only what
- * that warehouse holds; an SN-tracked item (a modem) picks one of the units in that warehouse instead
+ * Material lines on the repair resume. Each line picks a technician's warehouse and then only what
+ * that warehouse holds (by name, without quantities); an SN-tracked item (a modem) picks one of the units in that warehouse instead
  * of a quantity, and a unit already picked on another line is not offered again.
  */
 export default ({ lines = [], technicians = [], stock = {}, defaultTechnician = '' }) => ({
@@ -31,10 +31,10 @@ export default ({ lines = [], technicians = [], stock = {}, defaultTechnician = 
     },
 
     itemLabel(item) {
-        return `${item.code} · ${item.name} (sisa ${item.quantity}${item.serial ? ' unit' : ''})`;
+        return `${item.code} · ${item.name}`;
     },
 
     technicianLabel(crew) {
-        return `${crew.name} (${(this.stock[crew.id] || []).length} jenis barang)`;
+        return crew.name;
     },
 });

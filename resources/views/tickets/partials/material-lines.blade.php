@@ -1,4 +1,4 @@
-{{-- Each line picks a crew member's warehouse, then only what that warehouse holds. --}}
+{{-- Each line picks a technician's warehouse, then only what that warehouse holds. --}}
 <div class="space-y-2 rounded-lg border border-slate-200 p-3">
     <div class="flex items-center justify-between gap-2">
         <span class="flex items-center gap-1 text-sm font-semibold text-slate-700"><i data-lucide="package" class="h-4 w-4"></i>Material Terpakai</span>
