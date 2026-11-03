@@ -27,6 +27,7 @@
             'lines' => array_values(old('materials', [])),
             'technicians' => $stockHolders,
             'stock' => (object) $crewStock,
+            'unitsUrl' => route('tickets.material.units', $ticket),
             'defaultTechnician' => $isFieldTechnician && isset($crewStock[auth()->id()]) ? auth()->id() : (count($stockHolders) === 1 ? $stockHolders[0]['id'] : ''),
         ];
         // A new resume would carry its own material, so the resubmit form waits until the repair is reported.

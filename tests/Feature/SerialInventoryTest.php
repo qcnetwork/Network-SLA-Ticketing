@@ -98,7 +98,12 @@ class SerialInventoryTest extends TestCase
         $url = "/tickets/{$ticket->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI";
         $line = ['technician_id' => $this->technician->id, 'code' => 'MDM031'];
 
-        $this->actingAs($this->technician)->get("/tickets/{$ticket->ticket_number}")->assertOk()->assertSee('SN-A')->assertDontSee('SN-OTHER');
+        $this->actingAs($this->technician)->get("/tickets/{$ticket->ticket_number}")->assertOk()->assertDontSee('SN-A');
+        $units = "/tickets/{$ticket->ticket_number}/material/sn?technician={$this->technician->id}";
+        $this->getJson($units)->assertOk()->assertExactJson(['MDM031' => [['sn' => 'SN-A', 'mac' => '28:6D:DA:0C:D4:60'], ['sn' => 'SN-B', 'mac' => null]]]);
+        $this->getJson("/tickets/{$ticket->ticket_number}/material/sn?technician={$this->warehouse->id}")->assertNotFound();
+        $this->actingAs($this->userWithRole(Role::TEKNISI))->getJson($units)->assertForbidden();
+        $this->actingAs($this->technician);
 
         $this->post($url, ['notes' => 'Ganti modem', 'materials' => [$line]])->assertSessionHasErrors('materials');
         $this->post($url, ['notes' => 'Ganti modem', 'materials' => [$line + ['serial' => 'SN-OTHER']]])->assertSessionHasErrors('materials');
@@ -112,7 +117,8 @@ class SerialInventoryTest extends TestCase
         $this->assertSame($own->id, SerialUnit::query()->where('serial_number', 'SN-A')->value('warehouse_id'));
         $this->assertSame(2, $this->quantity($own));
         $next = Ticket::factory()->status(TicketStatus::PERBAIKAN)->assignedTo($this->technician)->create(['repair_started_at' => now()]);
-        $this->get("/tickets/{$next->ticket_number}")->assertSee('SN-B')->assertDontSee('SN-A');
+        $this->getJson("/tickets/{$next->ticket_number}/material/sn?technician={$this->technician->id}")
+            ->assertExactJson(['MDM031' => [['sn' => 'SN-B', 'mac' => null]]]);
         $this->post("/tickets/{$next->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI", ['notes' => 'Ganti modem', 'materials' => [$line + ['serial' => 'SN-A']]])
             ->assertSessionHasErrors('materials');
         $this->actingAs($this->warehouse)->post("/gudang/{$own->id}/retur-sn", ['serials' => [['sn' => 'SN-A']]])->assertSessionHasErrors('serials');

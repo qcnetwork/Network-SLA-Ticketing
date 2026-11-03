@@ -202,7 +202,7 @@ class InventoryTest extends TestCase
                 ['id' => $partner->id, 'name' => 'Tim Dian · ditugaskan'],
                 ['id' => $outsider->id, 'name' => 'Tim Zaki'],
             ])
-            ->assertViewHas('crewStock', fn (array $stock) => $stock[$outsider->id] === [['code' => 'KBL003', 'name' => 'KABEL LAN GLOBAL', 'serial' => false, 'units' => []]]);
+            ->assertViewHas('crewStock', fn (array $stock) => $stock[$outsider->id] === [['code' => 'KBL003', 'name' => 'KABEL LAN GLOBAL', 'serial' => false]]);
         // Each line needs a technician's warehouse.
         $this->actingAs($helpdesk)->post($url, ['notes' => 'Ganti adaptor', 'materials' => [['code' => 'KBL003', 'quantity' => 5]]])
             ->assertSessionHasErrors('materials');

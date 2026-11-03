@@ -45,6 +45,7 @@ Route::middleware('auth')->group(function () {
     Route::put('/tickets/{ticket}/customer', [TicketController::class, 'updateCustomer'])->name('tickets.customer.update');
     Route::put('/tickets/{ticket}/handling', [TicketController::class, 'updateHandling'])->name('tickets.handling.update');
     Route::post('/tickets/{ticket}/material', [TicketController::class, 'resubmitMaterial'])->name('tickets.material.resubmit');
+    Route::get('/tickets/{ticket}/material/sn', [TicketController::class, 'materialUnits'])->name('tickets.material.units');
     Route::get('/tickets/{ticket}/attachments/{attachment}', [TicketController::class, 'attachment'])
         ->scopeBindings()->name('tickets.attachment');
     Route::get('/tickets/{ticket}/whatsapp', [TicketController::class, 'whatsapp'])->name('tickets.whatsapp');

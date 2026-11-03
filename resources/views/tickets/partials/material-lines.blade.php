@@ -6,7 +6,7 @@
     </div>
     <template x-for="(line, i) in lines" :key="i">
         <div class="grid grid-cols-[1fr_4.5rem_auto] gap-2 border-t border-slate-100 pt-2 first:border-0 first:pt-0">
-            <select :name="`materials[${i}][technician_id]`" x-model="line.technician_id" @change="line.code = ''; line.serial = ''" class="input col-span-3 text-sm" required>
+            <select :name="`materials[${i}][technician_id]`" x-model="line.technician_id" @change="line.code = ''; line.serial = ''; loadUnits(line.technician_id)" class="input col-span-3 text-sm" required>
                 <option value="">Stok dari gudang teknisi...</option>
                 <template x-for="crew in technicians" :key="crew.id">
                     <option :value="crew.id" :selected="String(crew.id) === String(line.technician_id)" x-text="technicianLabel(crew)"></option>
@@ -23,7 +23,7 @@
             <button type="button" @click="lines.splice(i, 1)" class="btn-secondary px-2 text-xs" title="Hapus">&times;</button>
             <template x-if="isSerial(line)">
                 <select :name="`materials[${i}][serial]`" x-model="line.serial" class="input col-span-3 font-mono text-sm" required>
-                    <option value="" x-text="unitsFor(line, i).length ? 'Pilih SN modem yang dipasang' : 'Tidak ada SN tersisa'"></option>
+                    <option value="" x-text="loading[line.technician_id] ? 'Memuat SN...' : (unitsFor(line, i).length ? 'Pilih SN modem yang dipasang' : 'Tidak ada SN tersisa')"></option>
                     <template x-for="unit in unitsFor(line, i)" :key="unit.sn">
                         <option :value="unit.sn" :selected="unit.sn === line.serial" x-text="unit.mac ? `${unit.sn} · ${unit.mac}` : unit.sn"></option>
                     </template>

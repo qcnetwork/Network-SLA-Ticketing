@@ -19,11 +19,13 @@ use App\Models\TicketAttachment;
 use App\Models\TicketCategory;
 use App\Models\TicketShare;
 use App\Models\User;
+use App\Models\Warehouse;
 use App\Services\DocumentationPhotoStore;
 use App\Services\IncidentWorkflowService;
 use App\Services\InventoryService;
 use App\Services\TicketWorkflowService;
 use App\Services\WhatsAppTemplateService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -140,21 +142,18 @@ class TicketController extends Controller
     }
 
     /**
-     * What each technician carries, keyed by their user id, with the SNs of every modem they hold, and the
-     * technicians to pick from (the ticket's crew first). Material may come from any technician's stock, e.g.
+     * What each technician carries, keyed by their user id, and the technicians to pick from (the ticket's
+     * crew first). A modem's SNs are fetched once its technician is picked (see materialUnits). Material may come from any technician's stock, e.g.
      * a teammate who handed over a modem on site. Quantities stay out of the page: the resume only names
      * what was used. Stock already claimed by a resume still waiting for the warehouse is left out.
      *
-     * @return array{crewStock: array<int, list<array{code: string, name: string, serial: bool, units: list<array{sn: string, mac: ?string}>}>>, stockHolders: list<array{id: int, name: string}>}
+     * @return array{crewStock: array<int, list<array{code: string, name: string, serial: bool}>>, stockHolders: list<array{id: int, name: string}>}
      */
     private function technicianStock(Ticket $ticket): array
     {
         $technicianWarehouse = fn ($q) => $q->whereHas('user', fn ($user) => $user->where('role', Role::TEKNISI));
-        $requested = MaterialRequestLine::query()->pending()->whereHas('warehouse', $technicianWarehouse)->get();
-        $claimed = $requested->groupBy(fn (MaterialRequestLine $line) => "{$line->warehouse_id}:{$line->item_id}")->map->sum('quantity');
-        $units = SerialUnit::query()->whereHas('warehouse', $technicianWarehouse)->whereNotIn('id', $requested->pluck('serial_unit_id')->filter())
-            ->orderBy('serial_number')->get(['warehouse_id', 'item_id', 'serial_number', 'mac'])
-            ->groupBy(fn (SerialUnit $unit) => "{$unit->warehouse_id}:{$unit->item_id}");
+        $claimed = MaterialRequestLine::query()->pending()->whereHas('warehouse', $technicianWarehouse)->get()
+            ->groupBy(fn (MaterialRequestLine $line) => "{$line->warehouse_id}:{$line->item_id}")->map->sum('quantity');
 
         $stock = Stock::query()->with(['item', 'warehouse.user'])->where('quantity', '>', 0)->whereHas('warehouse', $technicianWarehouse)->get()
             ->each(fn (Stock $stock) => $stock->quantity -= $claimed["{$stock->warehouse_id}:{$stock->item_id}"] ?? 0)
@@ -172,10 +171,35 @@ class TicketController extends Controller
                 'code' => $stock->item->code,
                 'name' => $stock->item->name,
                 'serial' => $stock->item->tracks_serial,
-                'units' => ($units["{$stock->warehouse_id}:{$stock->item_id}"] ?? collect())
-                    ->map(fn (SerialUnit $unit) => ['sn' => $unit->serial_number, 'mac' => $unit->formattedMac()])->values()->all(),
             ])->values()->all())
             ->all()];
+    }
+
+    /**
+     * The SNs one technician holds, by item code, for the material form of this ticket. SNs already on a
+     * resume waiting for the warehouse are left out.
+     */
+    public function materialUnits(Request $request, Ticket $ticket): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless(
+            ($ticket->status === TicketStatus::PERBAIKAN && $user->can('perform', [$ticket, TicketAction::LAPOR_PERBAIKAN_SELESAI]))
+                || $user->can('resubmitMaterial', $ticket),
+            403,
+        );
+        $technician = User::query()->where('role', Role::TEKNISI)->findOrFail((int) $request->query('technician'));
+        $warehouse = Warehouse::query()->where('user_id', $technician->id)->first();
+        if (! $warehouse) {
+            return response()->json((object) []);
+        }
+
+        return response()->json((object) SerialUnit::query()->with('item:id,code')
+            ->where('warehouse_id', $warehouse->id)
+            ->whereNotIn('id', MaterialRequestLine::query()->pending()->whereNotNull('serial_unit_id')->select('serial_unit_id'))
+            ->orderBy('serial_number')->get(['id', 'item_id', 'serial_number', 'mac'])
+            ->groupBy('item.code')
+            ->map(fn ($units) => $units->map(fn (SerialUnit $unit) => ['sn' => $unit->serial_number, 'mac' => $unit->formattedMac()])->values())
+            ->all());
     }
 
     public function perform(Request $request, Ticket $ticket, string $action): RedirectResponse
