@@ -106,6 +106,14 @@ class InventoryTest extends TestCase
         $this->actingAs($this->warehouse)->post("/gudang/{$own->id}/retur", ['item' => 'ADP001', 'quantity' => 2])->assertSessionHasErrors('quantity');
 
         $this->get('/gudang')->assertOk()->assertSee('Pengajuan Material')->assertSee($ticket->ticket_number);
+        // The warehouse sees only tickets with material to approve, and the approval node runs on after closing.
+        $this->get('/dashboard?view=table')->assertOk()->assertSee($ticket->ticket_number)->assertDontSee($next->ticket_number);
+        $this->get("/tickets/{$next->ticket_number}")->assertForbidden();
+        $ticket->update(['status' => TicketStatus::TUTUP, 'closed_at' => now()]);
+        $this->get("/tickets/{$ticket->ticket_number}")->assertOk()->assertSee('Approval Material')->assertSee('menunggu ACC Gudang');
+        $this->actingAs($this->userWithRole(Role::HELPDESK))->get("/tickets/{$ticket->ticket_number}")->assertSee('Approval Material');
+        $this->actingAs($this->userWithRole(Role::CS))->get("/tickets/{$ticket->ticket_number}")->assertDontSee('Approval Material');
+        $this->actingAs($this->warehouse);
         $this->get("/tickets/{$ticket->ticket_number}")->assertSee('Material Terpakai')->assertSee('Menunggu ACC Gudang');
 
         $this->post("/gudang/pengajuan/{$request->id}/setujui", ['review_notes' => 'Sesuai'])->assertSessionHasNoErrors();

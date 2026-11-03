@@ -145,12 +145,15 @@ class Ticket extends Model
 
     /**
      * Limit the query to tickets the given user may see.
-     * Technicians only see repair tickets assigned to them.
+     * Technicians only see repair tickets assigned to them; the warehouse only sees tickets with material to approve.
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->role === Role::TEKNISI) {
             $query->where('status', TicketStatus::PERBAIKAN)->assignedTo($user);
+        }
+        if ($user->role === Role::GUDANG) {
+            $query->whereHas('materialRequests');
         }
 
         return $query;

@@ -22,6 +22,14 @@
         $canForward = $can(A::TERUSKAN_HELPDESK) && $status === S::PROSES_CS;
         $canCsClose = $can(A::SELESAI_EDUKASI_CS) && in_array($status, [S::PROSES_CS, S::ANTRIAN_HELPDESK], true);
         $actionUrl = fn (A $action) => route('tickets.perform', [$ticket, $action->value]);
+        // Material approval runs on its own clock: it can still be waiting after the ticket is closed.
+        $materialStatus = auth()->user()->hasRole(App\Enums\Role::HELPDESK, App\Enums\Role::GUDANG, App\Enums\Role::SPV) && $ticket->materialRequests->isNotEmpty()
+            ? match (true) {
+                $ticket->materialRequests->contains->isPending() => App\Enums\MaterialRequestStatus::PENDING,
+                $ticket->materialRequests->contains('status', App\Enums\MaterialRequestStatus::APPROVED) => App\Enums\MaterialRequestStatus::APPROVED,
+                default => App\Enums\MaterialRequestStatus::REJECTED,
+            }
+            : null;
     @endphp
 
     @if ($myShare)
@@ -78,10 +86,20 @@
                     ])>
                         <i data-lucide="{{ $i < $stepIndex ? 'check' : $step->icon() }}" class="h-3.5 w-3.5"></i>{{ $step->label() }}
                     </span>
-                    @if (! $loop->last)<i data-lucide="chevron-right" class="h-4 w-4 text-slate-300"></i>@endif
+                    @if (! $loop->last || $materialStatus)<i data-lucide="chevron-right" class="h-4 w-4 text-slate-300"></i>@endif
                 </li>
             @endforeach
+            @if ($materialStatus)
+                <li>
+                    <span class="flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold {{ $materialStatus->badgeClasses() }}" title="{{ $materialStatus->label() }}">
+                        <i data-lucide="{{ match ($materialStatus) { App\Enums\MaterialRequestStatus::PENDING => 'hourglass', App\Enums\MaterialRequestStatus::APPROVED => 'check', default => 'x' } }}" class="h-3.5 w-3.5"></i>Approval Material
+                    </span>
+                </li>
+            @endif
         </ol>
+        @if ($materialStatus === App\Enums\MaterialRequestStatus::PENDING)
+            <p class="mt-3 flex items-center gap-1 text-xs font-medium text-amber-700"><i data-lucide="package" class="h-3.5 w-3.5"></i>Material dari Resume Perbaikan menunggu ACC Gudang. Stok teknisi belum berkurang.</p>
+        @endif
         @if ($status === S::GAMAS)
             <p class="mt-3 flex items-center gap-1 text-xs font-medium text-red-700"><i data-lucide="radio-tower" class="h-3.5 w-3.5"></i>Tiket ini menunggu perbaikan gangguan massal. Tiket otomatis lanjut ke konfirmasi saat gamas selesai.</p>
         @endif

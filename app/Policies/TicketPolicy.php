@@ -15,6 +15,9 @@ class TicketPolicy
         if ($user->role === Role::TEKNISI) {
             return $this->worksOn($user, $ticket) || $ticket->isSharedWith($user);
         }
+        if ($user->role === Role::GUDANG) {
+            return $ticket->materialRequests()->exists();
+        }
 
         return true;
     }
