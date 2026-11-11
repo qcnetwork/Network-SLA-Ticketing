@@ -4,7 +4,10 @@
             <h1 class="text-2xl font-bold text-slate-900">Manajemen Pengguna</h1>
             <p class="text-sm text-slate-500">Akun CS, Helpdesk, Teknisi, dan Supervisor.</p>
         </div>
-        <a href="{{ route('users.create') }}" class="btn-primary"><i data-lucide="user-plus" class="h-4 w-4"></i>Tambah Pengguna</a>
+        <div class="flex flex-wrap gap-2">
+            <a href="{{ route('menu-access.index') }}" class="btn-secondary"><i data-lucide="key-round" class="h-4 w-4"></i>Hak Akses Menu</a>
+            <a href="{{ route('users.create') }}" class="btn-primary"><i data-lucide="user-plus" class="h-4 w-4"></i>Tambah Pengguna</a>
+        </div>
     </div>
 
     {{-- Phones get stacked cards; the table needs more width than a phone has. --}}

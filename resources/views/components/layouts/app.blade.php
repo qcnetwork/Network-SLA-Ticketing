@@ -1,3 +1,4 @@
+@use('App\Enums\Menu')
 @use('App\Enums\Role')
 @props(['title' => null])
 @php
@@ -8,20 +9,22 @@
         ['route' => 'incidents.index', 'label' => 'Gamas', 'icon' => 'radio-tower', 'active' => 'incidents.*'],
         $user->can('create', App\Models\Ticket::class)
             ? ['route' => 'tickets.create', 'label' => 'Tiket Baru', 'icon' => 'plus-circle', 'active' => 'tickets.create'] : null,
-        $user->hasRole(Role::HELPDESK, Role::SPV, Role::TEKNISI)
+        $user->canAccess(Menu::ARCHIVE)
             ? ['route' => 'archive.index', 'label' => 'Arsip', 'icon' => 'archive', 'active' => 'archive.*'] : null,
-        $user->hasRole(Role::GUDANG, Role::SPV, Role::HELPDESK, Role::TEKNISI)
+        $user->canAccess(Menu::WAREHOUSE)
             ? ['route' => 'warehouses.index', 'label' => $user->role === Role::TEKNISI ? 'Stok Saya' : 'Gudang', 'icon' => 'warehouse', 'active' => ['warehouses.*', 'items.*']] : null,
     ]));
     $more = array_values(array_filter([
-        $user->hasRole(Role::HELPDESK, Role::SPV, Role::CS)
+        $user->canAccess(Menu::REPORTS)
             ? ['route' => 'reports.index', 'label' => 'Laporan', 'icon' => 'bar-chart-3', 'active' => 'reports.*', 'group' => 'Pantau'] : null,
-        $user->hasRole(Role::HELPDESK, Role::SPV, Role::CS)
+        $user->canAccess(Menu::CUSTOMERS)
             ? ['route' => 'customers.index', 'label' => 'Pelanggan', 'icon' => 'user', 'active' => 'customers.*', 'group' => 'Pantau'] : null,
-        $user->hasRole(Role::HELPDESK, Role::SPV)
+        $user->canAccess(Menu::TELEGRAM_LOGS)
             ? ['route' => 'telegram.logs', 'label' => 'Feed Telegram', 'icon' => 'send', 'active' => 'telegram.*', 'group' => 'Pantau'] : null,
         $user->hasRole(Role::SPV)
             ? ['route' => 'users.index', 'label' => 'Pengguna', 'icon' => 'users', 'active' => 'users.*', 'group' => 'Kelola'] : null,
+        $user->hasRole(Role::SPV)
+            ? ['route' => 'menu-access.index', 'label' => 'Hak Akses', 'icon' => 'key-round', 'active' => 'menu-access.*', 'group' => 'Kelola'] : null,
         $user->hasRole(Role::SPV)
             ? ['route' => 'settings.edit', 'label' => 'Pengaturan', 'icon' => 'settings', 'active' => ['settings.*', 'categories.*', 'modems.*'], 'group' => 'Kelola'] : null,
     ]));

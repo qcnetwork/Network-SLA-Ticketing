@@ -6,6 +6,7 @@ use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\ItemController;
+use App\Http\Controllers\MenuAccessController;
 use App\Http\Controllers\ModemTypeController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
@@ -53,14 +54,13 @@ Route::middleware('auth')->group(function () {
     Route::delete('/tickets/{ticket}/shares/{share}', [TicketShareController::class, 'destroy'])
         ->scopeBindings()->name('tickets.shares.destroy');
 
-    Route::middleware('role:CS,HELPDESK,SPV')->group(function () {
-        Route::get('/pelanggan', [CustomerController::class, 'index'])->name('customers.index');
-        Route::get('/pelanggan/cari', [CustomerController::class, 'search'])->name('customers.search');
-    });
+    Route::get('/pelanggan', [CustomerController::class, 'index'])->middleware('menu:customers')->name('customers.index');
+    // The ticket form's picker: open to whoever may make tickets, even without the customer menu.
+    Route::get('/pelanggan/cari', [CustomerController::class, 'search'])->name('customers.search');
 
-    Route::get('/arsip', [ArchiveController::class, 'index'])->middleware('role:HELPDESK,SPV,TEKNISI')->name('archive.index');
+    Route::get('/arsip', [ArchiveController::class, 'index'])->middleware('menu:archive')->name('archive.index');
 
-    Route::middleware('role:GUDANG,SPV')->group(function () {
+    Route::middleware('menu:warehouse_manage')->group(function () {
         Route::get('/gudang/barang', [ItemController::class, 'index'])->name('items.index');
         Route::post('/gudang/barang', [ItemController::class, 'store'])->name('items.store');
         Route::put('/gudang/barang/{item}', [ItemController::class, 'update'])->name('items.update');
@@ -75,7 +75,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/gudang/pengajuan/{materialRequest}/setujui', [WarehouseController::class, 'approveRequest'])->name('material-requests.approve');
         Route::post('/gudang/pengajuan/{materialRequest}/tolak', [WarehouseController::class, 'rejectRequest'])->name('material-requests.reject');
     });
-    Route::middleware('role:GUDANG,SPV,HELPDESK,TEKNISI')->group(function () {
+    Route::middleware('menu:warehouse')->group(function () {
         Route::get('/gudang', [WarehouseController::class, 'index'])->name('warehouses.index');
         Route::get('/gudang/{warehouse}', [WarehouseController::class, 'show'])->whereNumber('warehouse')->name('warehouses.show');
     });
@@ -91,18 +91,18 @@ Route::middleware('auth')->group(function () {
     Route::get('/gamas/{incident}/attachments/{attachment}', [IncidentController::class, 'attachment'])
         ->scopeBindings()->name('incidents.attachment');
 
-    Route::middleware('role:HELPDESK,SPV,CS')->group(function () {
+    Route::middleware('menu:reports')->group(function () {
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
         Route::get('/reports/heatmap', [ReportController::class, 'heatmap'])->name('reports.heatmap');
     });
 
-    Route::middleware('role:HELPDESK,SPV')->group(function () {
-        Route::get('/telegram-logs', [ReportController::class, 'telegramLogs'])->name('telegram.logs');
-    });
+    Route::get('/telegram-logs', [ReportController::class, 'telegramLogs'])->middleware('menu:telegram_logs')->name('telegram.logs');
 
     Route::middleware('role:SPV')->group(function () {
         Route::resource('users', UserController::class)->except('show');
+        Route::get('/hak-akses', [MenuAccessController::class, 'index'])->name('menu-access.index');
+        Route::put('/hak-akses', [MenuAccessController::class, 'update'])->name('menu-access.update');
         Route::resource('categories', TicketCategoryController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['categories' => 'id']);
         Route::resource('modems', ModemTypeController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['modems' => 'id']);
         Route::get('/settings', [SettingController::class, 'edit'])->name('settings.edit');

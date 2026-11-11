@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\Menu;
 use App\Enums\Role;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -35,12 +36,53 @@ class User extends Authenticatable
             'role' => Role::class,
             'active' => 'boolean',
             'hidden_board_statuses' => 'array',
+            'menu_access' => 'array',
         ];
     }
 
     public function hasRole(Role ...$roles): bool
     {
         return in_array($this->role, $roles, true);
+    }
+
+    /**
+     * The role's menus, adjusted by what a supervisor granted or revoked for this account. The
+     * primary supervisor always has everything, so no one can lock the last way back in.
+     */
+    public function canAccess(Menu $menu): bool
+    {
+        if ($this->isPrimarySupervisor()) {
+            return true;
+        }
+        // Managing the warehouse happens on its pages, so it brings seeing them along.
+        if ($menu === Menu::WAREHOUSE && $this->canAccess(Menu::WAREHOUSE_MANAGE)) {
+            return true;
+        }
+
+        return $this->menu_access[$menu->value] ?? $menu->isDefaultFor($this->role);
+    }
+
+    /**
+     * Give this account exactly these menus, keeping only the differences from its role.
+     *
+     * @param  list<Menu>  $menus
+     */
+    public function setMenus(array $menus): void
+    {
+        $overrides = [];
+        foreach (Menu::cases() as $menu) {
+            $granted = in_array($menu, $menus, true) || ($menu === Menu::WAREHOUSE && in_array(Menu::WAREHOUSE_MANAGE, $menus, true));
+            if ($granted !== $menu->isDefaultFor($this->role)) {
+                $overrides[$menu->value] = $granted;
+            }
+        }
+        $this->menu_access = $overrides ?: null;
+    }
+
+    /** Whether a supervisor changed this account's menus away from its role's. */
+    public function hasCustomMenus(): bool
+    {
+        return ! empty($this->menu_access);
     }
 
     public function isPrimarySupervisor(): bool

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureUserCanAccessMenu;
 use App\Http\Middleware\EnsureUserHasRole;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\SecurityHeaders;
@@ -21,6 +22,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prepend(SecurityHeaders::class);
         $middleware->alias([
             'role' => EnsureUserHasRole::class,
+            'menu' => EnsureUserCanAccessMenu::class,
         ]);
         $middleware->web(append: [
             // A password change signs the account out everywhere else (other browsers, remember-me cookies).

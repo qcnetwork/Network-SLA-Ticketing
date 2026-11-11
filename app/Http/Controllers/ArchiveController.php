@@ -11,7 +11,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
- * Every ticket ever made, closed ones included, for looking up past cases. Helpdesk and
+ * Every ticket ever made, closed ones included, for looking up past cases. CS, Helpdesk and
  * supervisors search all of it; a technician only sees the tickets shared with them.
  */
 class ArchiveController extends Controller
@@ -31,6 +31,8 @@ class ArchiveController extends Controller
             ->with('technicians')
             ->when($isTechnician, fn (Builder $query) => $query->sharedWith($user)
                 ->with(['shares' => fn ($share) => $share->active()->where('user_id', $user->id)]))
+            // The warehouse may open only tickets that carry material, so it searches only those.
+            ->when($user->role === Role::GUDANG, fn (Builder $query) => $query->whereHas('materialRequests'))
             ->when(filled($filters['q'] ?? null), fn (Builder $query) => $this->search($query, trim($filters['q'])))
             ->when(($filters['status'] ?? 'ALL') === 'OPEN', fn (Builder $query) => $query->where('status', '!=', TicketStatus::TUTUP))
             ->when(($filters['status'] ?? 'ALL') === 'TUTUP', fn (Builder $query) => $query->where('status', TicketStatus::TUTUP))

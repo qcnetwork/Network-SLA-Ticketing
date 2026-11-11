@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\MaterialRequestStatus;
+use App\Enums\Menu;
 use App\Enums\Role;
 use App\Models\Item;
 use App\Models\MaterialRequest;
@@ -47,7 +48,7 @@ class WarehouseController extends Controller
             'serialItems' => Item::query()->where('active', true)->where('tracks_serial', true)->orderBy('code')->get(['code', 'name']),
             // Searching an SN or MAC shows where that unit is now, wherever it is.
             'serialMatches' => $this->serialMatches($request),
-            'canManage' => $user->hasRole(Role::GUDANG, Role::SPV),
+            'canManage' => $user->canAccess(Menu::WAREHOUSE_MANAGE),
         ]);
     }
 
@@ -71,7 +72,7 @@ class WarehouseController extends Controller
                     ->filter->awaitsMaterialResubmission()->values()
                 : collect(),
             ...$this->stockPage($request, $warehouse),
-            'canManage' => $user->hasRole(Role::GUDANG, Role::SPV),
+            'canManage' => $user->canAccess(Menu::WAREHOUSE_MANAGE),
         ]);
     }
 

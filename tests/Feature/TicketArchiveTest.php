@@ -45,13 +45,14 @@ class TicketArchiveTest extends TestCase
         $this->get('/arsip?q=%25')->assertSee('0 tiket ditemukan');
     }
 
-    public function test_cs_has_no_archive_and_technicians_see_only_what_was_shared(): void
+    public function test_cs_searches_the_whole_archive_and_technicians_see_only_what_was_shared(): void
     {
         $shared = Ticket::factory()->status(TicketStatus::TUTUP)->create();
         $notShared = Ticket::factory()->status(TicketStatus::TUTUP)->create();
         $this->share($shared)->assertSessionHasNoErrors();
 
-        $this->actingAs($this->userWithRole(Role::CS))->get('/arsip')->assertForbidden();
+        $this->actingAs($this->userWithRole(Role::CS))->get('/arsip')->assertOk()
+            ->assertSee($shared->ticket_number)->assertSee($notShared->ticket_number);
         $this->actingAs($this->technician)->get('/arsip')->assertOk()
             ->assertSee($shared->ticket_number)->assertDontSee($notShared->ticket_number);
     }
