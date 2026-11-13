@@ -47,6 +47,22 @@ class GeoLocation
         return 'https://www.google.com/maps?q='.self::format($latitude).','.self::format($longitude);
     }
 
+    /**
+     * A pin written as "lat, lng" with full precision, which fromText reads back to the same pin.
+     */
+    public static function pair(float $latitude, float $longitude): string
+    {
+        return number_format($latitude, 7, '.', '').', '.number_format($longitude, 7, '.', '');
+    }
+
+    /**
+     * Whether the text is only a "lat, lng" pair, with no written address around it.
+     */
+    public static function isPair(?string $text): bool
+    {
+        return (bool) preg_match('~^\s*-?\d{1,2}\.\d+\s*,\s*\+?-?\d{1,3}\.\d+\s*$~', (string) $text);
+    }
+
     public static function format(float $value): string
     {
         return rtrim(rtrim(number_format($value, 7, '.', ''), '0'), '.');

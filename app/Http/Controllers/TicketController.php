@@ -62,7 +62,7 @@ class TicketController extends Controller
                 'code' => $customer->code,
                 'name' => $customer->name,
                 'phone' => $customer->phone,
-                'address' => $customer->address,
+                'address' => $customer->ticketAddress(),
                 'tickets' => $customer->tickets_count,
                 'open_ticket' => null,
             ] : null,

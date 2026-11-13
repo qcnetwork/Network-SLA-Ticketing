@@ -61,7 +61,7 @@ class CustomerController extends Controller
             'code' => $customer->code,
             'name' => $customer->name,
             'phone' => $customer->phone,
-            'address' => $customer->address,
+            'address' => $customer->ticketAddress(),
             'tickets' => $customer->tickets_count,
             'open_ticket' => ($open = $openTickets->get($customer->code)) ? [
                 'number' => $open->ticket_number,

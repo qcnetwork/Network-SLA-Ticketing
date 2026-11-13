@@ -16,16 +16,21 @@ use RuntimeException;
  *
  * A customer already in the directory keeps what CS wrote on their tickets: the export only fills in
  * a phone, address or location the directory is still missing. Running it again is safe.
+ *
+ * Many locations are maps.app.goo.gl short links. Those are opened only when a resolver is passed, and
+ * only for customers still without a location, so a re-run asks Google just for the ones left.
  */
 class CustomerImport
 {
     /**
      * @param  list<string>  $files
-     * @return array{rows: int, skipped: int, created: int, filled: int, unchanged: int, no_phone: int, no_location: int}
+     * @param  (callable(string): ?array{0: float, 1: float})|null  $resolveLink  opens a short Maps link
+     * @param  (callable(int): void)|null  $linksFound  told how many links will be opened, before the first
+     * @return array{rows: int, skipped: int, created: int, filled: int, unchanged: int, no_phone: int, no_location: int, links_resolved: int, links_failed: int}
      */
-    public function import(array $files, bool $dryRun = false): array
+    public function import(array $files, bool $dryRun = false, ?callable $resolveLink = null, ?callable $linksFound = null): array
     {
-        $report = ['rows' => 0, 'skipped' => 0, 'created' => 0, 'filled' => 0, 'unchanged' => 0, 'no_phone' => 0, 'no_location' => 0];
+        $report = ['rows' => 0, 'skipped' => 0, 'created' => 0, 'filled' => 0, 'unchanged' => 0, 'no_phone' => 0, 'no_location' => 0, 'links_resolved' => 0, 'links_failed' => 0];
 
         $customers = [];
         foreach ($files as $file) {
@@ -43,11 +48,28 @@ class CustomerImport
         }
 
         $existing = Customer::query()->get()->keyBy(fn (Customer $c) => mb_strtolower(trim($c->code)));
+
+        if ($resolveLink) {
+            $pending = array_filter($customers, fn ($customer, $key) => $customer['latitude'] === null && $customer['link'] !== null
+                && $existing->get($key)?->latitude === null, ARRAY_FILTER_USE_BOTH);
+            if ($linksFound) {
+                $linksFound(count($pending));
+            }
+            foreach ($pending as $key => $customer) {
+                $coordinates = $resolveLink($customer['link']);
+                $report[$coordinates ? 'links_resolved' : 'links_failed']++;
+                if ($coordinates) {
+                    [$customers[$key]['latitude'], $customers[$key]['longitude']] = $coordinates;
+                }
+            }
+        }
+
         $now = now();
         $inserts = [];
         $updates = [];
 
         foreach ($customers as $key => $customer) {
+            unset($customer['link']);
             $report['no_phone'] += $customer['phone'] === '' ? 1 : 0;
             $report['no_location'] += $customer['latitude'] === null ? 1 : 0;
 
@@ -91,7 +113,7 @@ class CustomerImport
      * One customer row in the directory's own form, or null when it has no ID or name.
      *
      * @param  array<string, mixed>  $row
-     * @return array{code: string, name: string, phone: string, address: ?string, latitude: ?float, longitude: ?float}|null
+     * @return array{code: string, name: string, phone: string, address: ?string, latitude: ?float, longitude: ?float, link: ?string}|null
      */
     private function customer(array $row): ?array
     {
@@ -105,7 +127,9 @@ class CustomerImport
             $phone = $this->phone($row['Tlp2'] ?? null);
         }
         $address = $this->clean($row['Alamat'] ?? null);
-        [$latitude, $longitude] = $this->coordinates($this->clean($row['Titik Koordinat Lokasi'] ?? null)) ?? [null, null];
+        $location = $this->clean($row['Titik Koordinat Lokasi'] ?? null);
+        [$latitude, $longitude] = $this->coordinates($location) ?? [null, null];
+        preg_match('~https?://(?:maps\.app\.goo\.gl|goo\.gl|g\.co)/\S+~i', $location, $link);
 
         return [
             'code' => $code,
@@ -114,6 +138,7 @@ class CustomerImport
             'address' => $address === '' ? null : mb_substr($address, 0, 255),
             'latitude' => $latitude,
             'longitude' => $longitude,
+            'link' => $latitude === null ? ($link[0] ?? null) : null,
         ];
     }
 
@@ -136,7 +161,7 @@ class CustomerImport
     /**
      * A latitude/longitude pair inside Indonesia, wherever it sits in the cell: "lat, lng", with comma
      * decimals ("-6,95, 109,63"), with a trailing accuracy ("...,500m") or after an address. Short
-     * Google Maps links cannot be read without opening them, so they give no location.
+     * Google Maps links cannot be read without opening them, so they give no location here.
      *
      * @return array{0: float, 1: float}|null
      */

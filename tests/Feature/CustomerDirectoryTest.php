@@ -54,6 +54,29 @@ class CustomerDirectoryTest extends TestCase
         $this->assertEqualsCanonicalizing([$first->id, $second->id], $customer->tickets()->pluck('id')->all());
     }
 
+    public function test_a_customer_with_a_pin_starts_the_ticket_with_the_pin_and_keeps_it(): void
+    {
+        Customer::query()->create(['code' => 'QC-0100', 'name' => 'Budi', 'phone' => '6281234567890', 'address' => 'Jl. Melati 5', 'latitude' => -6.9668430, 'longitude' => 109.6624687]);
+        Customer::query()->create(['code' => 'QC-0101', 'name' => 'Andi', 'phone' => '6281234567891', 'address' => 'Jl. Kenanga 9']);
+
+        $this->actingAs($this->cs)->get('/tickets/create?customer=QC-0100')->assertSee('-6.9668430, 109.6624687');
+        $this->actingAs($this->cs)->get('/tickets/create?customer=QC-0101')->assertSee('Jl. Kenanga 9');
+        $this->actingAs($this->cs)->getJson('/pelanggan/cari?q=QC-010')
+            ->assertJsonFragment(['code' => 'QC-0100', 'address' => '-6.9668430, 109.6624687'])
+            ->assertJsonFragment(['code' => 'QC-0101', 'address' => 'Jl. Kenanga 9']);
+
+        $ticket = $this->createTicket(['customer_id' => 'QC-0100', 'customer_address' => '-6.9668430, 109.6624687']);
+        $this->assertSame([-6.966843, 109.6624687], [$ticket->latitude, $ticket->longitude]);
+        $customer = Customer::query()->withCode('QC-0100')->sole();
+        $this->assertSame('Jl. Melati 5', $customer->address);
+
+        // CS types a written address over the pin: the customer's pin is not wiped.
+        $this->createTicket(['customer_id' => 'QC-0100', 'customer_address' => 'Jl. Melati 5A']);
+        $customer->refresh();
+        $this->assertSame('Jl. Melati 5A', $customer->address);
+        $this->assertSame([-6.966843, 109.6624687], [$customer->latitude, $customer->longitude]);
+    }
+
     public function test_a_ticket_without_an_id_gets_a_new_customer(): void
     {
         $ticket = $this->createTicket();

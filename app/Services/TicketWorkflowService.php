@@ -523,12 +523,13 @@ class TicketWorkflowService
             ?? new Customer(['code' => $ticket->customer_id]);
 
         $customer->fill(['name' => $ticket->customer_name, 'phone' => $ticket->customer_phone]);
-        if ($ticket->customer_address) {
-            $customer->fill([
-                'address' => $ticket->customer_address,
-                'latitude' => $ticket->latitude,
-                'longitude' => $ticket->longitude,
-            ]);
+        // A ticket without a pin never wipes the customer's pin, and the bare "lat, lng" the form starts
+        // with for a customer who has one does not replace their written address.
+        if ($ticket->hasLocation()) {
+            $customer->fill(['latitude' => $ticket->latitude, 'longitude' => $ticket->longitude]);
+        }
+        if ($ticket->customer_address && ! GeoLocation::isPair($ticket->customer_address)) {
+            $customer->fill(['address' => $ticket->customer_address]);
         }
         $customer->save();
     }

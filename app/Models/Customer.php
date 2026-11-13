@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\GeoLocation;
 use App\Support\PhoneNumber;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -53,6 +54,20 @@ class Customer extends Model
             ->orWhere('name', 'like', $like)
             ->orWhere('phone', 'like', $like)
             ->when($phone, fn (Builder $q) => $q->orWhere('phone', 'like', '%'.$phone.'%')));
+    }
+
+    public function hasLocation(): bool
+    {
+        return $this->latitude !== null && $this->longitude !== null;
+    }
+
+    /**
+     * What a new ticket's address field starts with: the pin when the customer has one, so the ticket
+     * is placed on the map, and the written address only when there is no pin.
+     */
+    public function ticketAddress(): ?string
+    {
+        return $this->hasLocation() ? GeoLocation::pair($this->latitude, $this->longitude) : $this->address;
     }
 
     public function tickets(): HasMany

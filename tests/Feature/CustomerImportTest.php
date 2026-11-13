@@ -61,7 +61,7 @@ class CustomerImportTest extends TestCase
 
         $report = app(CustomerImport::class)->import([$html, $xlsx]);
 
-        $this->assertSame(['rows' => 5, 'skipped' => 1, 'created' => 4, 'filled' => 0, 'unchanged' => 0, 'no_phone' => 1, 'no_location' => 1], $report);
+        $this->assertSame(['rows' => 5, 'skipped' => 1, 'created' => 4, 'filled' => 0, 'unchanged' => 0, 'no_phone' => 1, 'no_location' => 1, 'links_resolved' => 0, 'links_failed' => 0], $report);
 
         $budi = Customer::query()->withCode('2026.001.1.1.01')->firstOrFail();
         $this->assertSame('BUDI CONTOH SATU', $budi->name);
@@ -95,6 +95,33 @@ class CustomerImportTest extends TestCase
         $this->assertSame('6281111111111', $customer->phone);
         $this->assertSame('Perum Contoh Blok A', $customer->address);
         $this->assertSame(-6.96, $customer->latitude);
+    }
+
+    public function test_short_links_are_opened_only_for_customers_still_without_a_location(): void
+    {
+        Customer::query()->create(['code' => 'A1', 'name' => 'Sudah ada lokasi', 'phone' => '', 'latitude' => -6.9, 'longitude' => 109.6]);
+        Customer::query()->create(['code' => 'A2', 'name' => 'Belum ada lokasi', 'phone' => '']);
+        $xlsx = $this->xlsxExport([
+            [1, 1, 1, 'A1', 46335, 'Sudah ada lokasi', '', '', '', 'On', 'https://maps.app.goo.gl/one'],
+            [2, 2, 1, 'A2', 46335, 'Belum ada lokasi', '', '', '', 'On', 'https://maps.app.goo.gl/two?g_st=aw'],
+            [3, 3, 1, 'A3', 46335, 'Pelanggan baru', '', '', '', 'On', 'https://maps.app.goo.gl/three'],
+            [4, 4, 1, 'A4', 46335, 'Link mati', '', '', '', 'On', 'https://maps.app.goo.gl/dead'],
+        ]);
+        $opened = [];
+        $resolve = function (string $url) use (&$opened) {
+            $opened[] = $url;
+
+            return str_contains($url, 'dead') ? null : [-7.01, 109.62];
+        };
+
+        $report = app(CustomerImport::class)->import([$xlsx], false, $resolve);
+
+        $this->assertSame(['https://maps.app.goo.gl/two?g_st=aw', 'https://maps.app.goo.gl/three', 'https://maps.app.goo.gl/dead'], $opened);
+        $this->assertSame([2, 1], [$report['links_resolved'], $report['links_failed']]);
+        $this->assertSame(-6.9, Customer::query()->withCode('A1')->value('latitude'));
+        $this->assertSame(-7.01, Customer::query()->withCode('A2')->value('latitude'));
+        $this->assertSame(109.62, Customer::query()->withCode('A3')->value('longitude'));
+        $this->assertNull(Customer::query()->withCode('A4')->value('latitude'));
     }
 
     public function test_a_dry_run_saves_nothing(): void
