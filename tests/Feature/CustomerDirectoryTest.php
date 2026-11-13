@@ -59,6 +59,10 @@ class CustomerDirectoryTest extends TestCase
         Customer::query()->create(['code' => 'QC-0100', 'name' => 'Budi', 'phone' => '6281234567890', 'address' => 'Jl. Melati 5', 'latitude' => -6.9668430, 'longitude' => 109.6624687]);
         Customer::query()->create(['code' => 'QC-0101', 'name' => 'Andi', 'phone' => '6281234567891', 'address' => 'Jl. Kenanga 9']);
 
+        $this->actingAs($this->cs)->get('/pelanggan')
+            ->assertSee('Jl. Melati 5')
+            ->assertSee('-6.966843, 109.6624687')
+            ->assertSee('https://www.google.com/maps?q=-6.966843,109.6624687', false);
         $this->actingAs($this->cs)->get('/tickets/create?customer=QC-0100')->assertSee('-6.9668430, 109.6624687');
         $this->actingAs($this->cs)->get('/tickets/create?customer=QC-0101')->assertSee('Jl. Kenanga 9');
         $this->actingAs($this->cs)->getJson('/pelanggan/cari?q=QC-010')

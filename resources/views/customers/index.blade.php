@@ -23,6 +23,13 @@
                     @if ($customer->address)
                         <div class="truncate text-xs text-slate-500">{{ $customer->address }}</div>
                     @endif
+                    @if ($customer->hasLocation())
+                        <div>
+                                <a href="{{ $customer->mapsUrl() }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-mono text-xs text-indigo-700 hover:underline">
+                                    <i data-lucide="map-pin" class="h-3.5 w-3.5"></i>{{ App\Support\GeoLocation::format($customer->latitude) }}, {{ App\Support\GeoLocation::format($customer->longitude) }}
+                                </a>
+                        </div>
+                    @endif
                     @can('create', App\Models\Ticket::class)
                         <a href="{{ route('tickets.create', ['customer' => $customer->code]) }}" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-indigo-700 hover:underline">
                             <i data-lucide="plus-circle" class="h-3.5 w-3.5"></i>Buat tiket
@@ -40,6 +47,7 @@
                     <th class="px-4 py-3">Nama</th>
                     <th class="px-4 py-3">WhatsApp</th>
                     <th class="px-4 py-3">Alamat</th>
+                    <th class="px-4 py-3">Tikor</th>
                     <th class="px-4 py-3 text-right">Tiket</th>
                     <th class="px-4 py-3">Tiket Terakhir</th>
                     <th class="px-4 py-3"></th>
@@ -52,6 +60,15 @@
                         <td class="px-4 py-2 font-medium text-slate-800">{{ $customer->name }}</td>
                         <td class="px-4 py-2 text-slate-600">{{ $customer->phone }}</td>
                         <td class="max-w-xs truncate px-4 py-2 text-slate-600" title="{{ $customer->address }}">{{ $customer->address ?: '-' }}</td>
+                        <td class="whitespace-nowrap px-4 py-2">
+                            @if ($customer->hasLocation())
+                                <a href="{{ $customer->mapsUrl() }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-mono text-xs text-indigo-700 hover:underline">
+                                    <i data-lucide="map-pin" class="h-3.5 w-3.5"></i>{{ App\Support\GeoLocation::format($customer->latitude) }}, {{ App\Support\GeoLocation::format($customer->longitude) }}
+                                </a>
+                            @else
+                                <span class="text-slate-400">-</span>
+                            @endif
+                        </td>
                         <td class="px-4 py-2 text-right font-semibold">{{ $customer->tickets_count }}</td>
                         <td class="px-4 py-2 text-xs text-slate-500">
                             {{ $customer->tickets_max_created_at ? \Illuminate\Support\Carbon::parse($customer->tickets_max_created_at)->format('d/m/Y') : '-' }}
@@ -65,7 +82,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="7" class="px-4 py-8 text-center text-slate-400">{{ $search !== '' ? 'Tidak ada pelanggan yang cocok' : 'Belum ada data pelanggan' }}</td></tr>
+                    <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">{{ $search !== '' ? 'Tidak ada pelanggan yang cocok' : 'Belum ada data pelanggan' }}</td></tr>
                 @endforelse
             </tbody>
         </table>

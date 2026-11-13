@@ -70,6 +70,11 @@ class Customer extends Model
         return $this->hasLocation() ? GeoLocation::pair($this->latitude, $this->longitude) : $this->address;
     }
 
+    public function mapsUrl(): ?string
+    {
+        return $this->hasLocation() ? GeoLocation::mapsUrl($this->latitude, $this->longitude) : null;
+    }
+
     public function tickets(): HasMany
     {
         return $this->hasMany(Ticket::class, 'customer_id', 'code');
