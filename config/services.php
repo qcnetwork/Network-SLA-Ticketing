@@ -28,6 +28,13 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // Tokens other applications send to read the customer directory (comma-separated, one per application).
+    'customer_api' => [
+        'tokens' => array_values(array_filter(array_map('trim', explode(',', (string) env('CUSTOMER_API_TOKENS', ''))))),
+        // These may also write each customer's OLT/ODC/ODP (the FTTH mapping app).
+        'write_tokens' => array_values(array_filter(array_map('trim', explode(',', (string) env('CUSTOMER_API_WRITE_TOKENS', ''))))),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

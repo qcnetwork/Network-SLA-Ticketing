@@ -99,6 +99,37 @@ Masuk sebagai SPV, buka **Pengaturan**, lalu isi Bot Token dan Group Chat ID. Se
 
 Pesan dikirim setelah halaman selesai dimuat, jadi request pengguna tidak ikut lambat dan tidak perlu menjalankan queue worker.
 
+## API Data Pelanggan
+
+Aplikasi lain bisa **membaca** data pelanggan (tidak bisa mengubah). Isi token di `.env`, satu token per aplikasi
+dipisah koma, minimal 32 karakter. Buat token dengan `openssl rand -hex 32`:
+
+```
+CUSTOMER_API_TOKENS=token_aplikasi_a,token_aplikasi_b
+```
+
+Lalu `php artisan config:clear` (atau `config:cache` jika server memakai cache konfigurasi). Setiap request mengirim
+header `Authorization: Bearer <token>`. Batasnya 120 request per menit.
+
+| Endpoint | Isi |
+|---|---|
+| `GET /api/v1/customers` | Daftar pelanggan per halaman. Parameter: `q` (cari ID/nama/WA), `updated_since` (tanggal/ISO 8601, hanya yang berubah setelahnya), `has_location` (`1`/`0`), `per_page` (1–500, default 100), `page` |
+| `GET /api/v1/customers/{id}` | Satu pelanggan berdasarkan ID Pelanggan |
+
+Setiap pelanggan berisi `id`, `name`, `phone`, `address`, `latitude`, `longitude`, `maps_url`,
+`network` (`olt`, `odc`, `odp`, `odp_port`, `updated_at`), `created_at`, `updated_at`. Daftar pelanggan juga bisa
+difilter dengan `olt` dan `odp`.
+
+### Data jaringan dari aplikasi Mapping FTTH
+
+Token di `CUSTOMER_API_WRITE_TOKENS` boleh membaca **dan** mengisi posisi pelanggan di jaringan. Selain OLT, ODC,
+ODP, dan port, tidak ada data lain yang bisa diubah lewat API: nama, WA, alamat, dan tikor tetap dikelola ticketing.
+
+| Endpoint | Isi |
+|---|---|
+| `PATCH /api/v1/customers/{id}/network` | Body JSON `{"olt": "OLT 17", "odc": "ODC-3", "odp": "ODP-12", "odp_port": 4}`. Hanya field yang dikirim yang berubah; `null` mengosongkan. |
+| `PATCH /api/v1/customers/network` | Banyak sekaligus (maks. 500): `{"customers": [{"id": "...", "odp": "...", ...}]}`. Balasan: `updated` dan `not_found` (ID yang tidak ada). |
+
 ## Perintah Berguna
 
 ```powershell

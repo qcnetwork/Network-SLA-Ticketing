@@ -23,6 +23,9 @@
                     @if ($customer->address)
                         <div class="truncate text-xs text-slate-500">{{ $customer->address }}</div>
                     @endif
+                    @if ($customer->networkLabel())
+                        <div class="truncate text-xs text-slate-500">{{ $customer->networkLabel() }}</div>
+                    @endif
                     @if ($customer->hasLocation())
                         <div>
                                 <a href="{{ $customer->mapsUrl() }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-mono text-xs text-indigo-700 hover:underline">
@@ -48,6 +51,7 @@
                     <th class="px-4 py-3">WhatsApp</th>
                     <th class="px-4 py-3">Alamat</th>
                     <th class="px-4 py-3">Tikor</th>
+                    <th class="px-4 py-3">OLT / ODC / ODP</th>
                     <th class="px-4 py-3 text-right">Tiket</th>
                     <th class="px-4 py-3">Tiket Terakhir</th>
                     <th class="px-4 py-3"></th>
@@ -69,6 +73,7 @@
                                 <span class="text-slate-400">-</span>
                             @endif
                         </td>
+                        <td class="max-w-xs truncate px-4 py-2 text-xs text-slate-600" title="{{ $customer->networkLabel() }}">{{ $customer->networkLabel() ?? '-' }}</td>
                         <td class="px-4 py-2 text-right font-semibold">{{ $customer->tickets_count }}</td>
                         <td class="px-4 py-2 text-xs text-slate-500">
                             {{ $customer->tickets_max_created_at ? \Illuminate\Support\Carbon::parse($customer->tickets_max_created_at)->format('d/m/Y') : '-' }}
@@ -82,7 +87,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">{{ $search !== '' ? 'Tidak ada pelanggan yang cocok' : 'Belum ada data pelanggan' }}</td></tr>
+                    <tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">{{ $search !== '' ? 'Tidak ada pelanggan yang cocok' : 'Belum ada data pelanggan' }}</td></tr>
                 @endforelse
             </tbody>
         </table>

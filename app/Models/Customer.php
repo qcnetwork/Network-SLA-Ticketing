@@ -21,6 +21,8 @@ class Customer extends Model
         return [
             'latitude' => 'float',
             'longitude' => 'float',
+            'odp_port' => 'integer',
+            'network_updated_at' => 'datetime',
         ];
     }
 
@@ -68,6 +70,17 @@ class Customer extends Model
     public function ticketAddress(): ?string
     {
         return $this->hasLocation() ? GeoLocation::pair($this->latitude, $this->longitude) : $this->address;
+    }
+
+    /**
+     * Where the customer hangs in the network, as the FTTH mapping app set it, e.g. "OLT 17 / ODC-3 / ODP-12 port 4".
+     */
+    public function networkLabel(): ?string
+    {
+        $odp = $this->odp ? $this->odp.($this->odp_port ? " port {$this->odp_port}" : '') : null;
+        $parts = array_filter([$this->olt, $this->odc, $odp]);
+
+        return $parts ? implode(' / ', $parts) : null;
     }
 
     public function mapsUrl(): ?string
