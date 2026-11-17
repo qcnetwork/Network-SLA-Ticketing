@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\Role;
 use App\Models\Item;
+use App\Models\ItemCategory;
 use App\Models\SerialUnit;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -275,6 +276,9 @@ class TrackingImport
             }
             if (! $item->tracks_serial) {
                 $item->update(['tracks_serial' => true]);
+            }
+            if (! $item->item_category_id) {
+                $item->update(['item_category_id' => (ItemCategory::guess($item->code, $item->name) ?? ItemCategory::query()->where('requires_serial', true)->ordered()->first())?->id]);
             }
             $items[$key] = $item;
         }

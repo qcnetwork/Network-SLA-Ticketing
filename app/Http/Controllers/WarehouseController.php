@@ -6,14 +6,17 @@ use App\Enums\MaterialRequestStatus;
 use App\Enums\Menu;
 use App\Enums\Role;
 use App\Models\Item;
+use App\Models\ItemCategory;
 use App\Models\MaterialRequest;
 use App\Models\SerialUnit;
+use App\Models\Stock;
 use App\Models\StockMovement;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Warehouse;
 use App\Services\InventoryService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -41,11 +44,14 @@ class WarehouseController extends Controller
             'materialRequests' => MaterialRequest::query()->pending()->with(self::REQUEST_DETAILS)->oldest('id')->get(),
             ...$this->stockPage($request, $main),
             'technicianWarehouses' => Warehouse::query()->technicians()->with('user')
-                ->withSum('stocks', 'quantity')->withCount(['stocks' => fn (Builder $q) => $q->where('quantity', '>', 0)])
+                ->withSum('stocks', 'quantity')->withCount(['stocks' => fn (Builder $q) => $q->where('quantity', '>', 0), 'serialUnits'])
                 ->orderBy('name')->get(),
             'technicians' => User::technicians()->get(),
-            'items' => Item::query()->where('active', true)->where('tracks_serial', false)->orderBy('code')->get(['code', 'name']),
-            'serialItems' => Item::query()->where('active', true)->where('tracks_serial', true)->orderBy('code')->get(['code', 'name']),
+            // Every active item with what the main warehouse holds, for the receive and send forms.
+            'catalog' => $this->catalog(Item::query()->where('active', true)->addSelect(['held' => $this->heldIn($main)])->get()),
+            'lowStock' => Item::query()->where('active', true)->where('min_stock', '>', 0)->with('category')
+                ->addSelect(['items.*', 'held' => $this->heldIn($main)])->orderBy('code')->get()
+                ->filter(fn (Item $item) => $item->isLow((int) $item->held))->values(),
             // Searching an SN or MAC shows where that unit is now, wherever it is.
             'serialMatches' => $this->serialMatches($request),
             'canManage' => $user->canAccess(Menu::WAREHOUSE_MANAGE),
@@ -72,6 +78,9 @@ class WarehouseController extends Controller
                     ->filter->awaitsMaterialResubmission()->values()
                 : collect(),
             ...$this->stockPage($request, $warehouse),
+            // What the technician holds, for the return form.
+            'catalog' => $this->catalog(Item::query()->whereHas('stocks', fn ($q) => $q->where('warehouse_id', $warehouse->id)->where('quantity', '>', 0))
+                ->addSelect(['items.*', 'held' => $this->heldIn($warehouse)])->get()),
             'canManage' => $user->canAccess(Menu::WAREHOUSE_MANAGE),
         ]);
     }
@@ -185,19 +194,35 @@ class WarehouseController extends Controller
     }
 
     /**
-     * The warehouse's stock (searchable) and its latest movements.
+     * The warehouse's stock (searchable, filtered by category), how much of each category it holds, and its latest movements.
      */
     private function stockPage(Request $request, Warehouse $warehouse): array
     {
         $search = trim((string) $request->query('q', ''));
+        $category = (string) $request->query('kategori', '');
+        $byCategory = $warehouse->stocks()->where('quantity', '>', 0)->join('items', 'items.id', '=', 'stocks.item_id')
+            ->selectRaw('items.item_category_id as category_id, count(*) as kinds, sum(stocks.quantity) as total')
+            ->groupBy('items.item_category_id')->get()
+            ->keyBy(fn ($row) => $row->category_id ?? 'none');
 
         return [
             'search' => $search,
-            'stocks' => $warehouse->stocks()->with('item')
+            'categoryFilter' => $category,
+            'categories' => ItemCategory::query()->ordered()->get(),
+            'byCategory' => $byCategory,
+            'summary' => [
+                'kinds' => (int) $byCategory->sum('kinds'),
+                'units' => (int) $byCategory->sum('total'),
+                'serials' => $warehouse->serialUnits()->count(),
+            ],
+            'stocks' => $warehouse->stocks()->with('item.category')
                 ->where('quantity', '>', 0)
                 ->when($search !== '', fn ($q) => $q->whereHas('item', fn ($item) => $item->search($search)
                     ->orWhereHas('serialUnits', fn ($unit) => $unit->where('warehouse_id', $warehouse->id)->where('serial_number', 'like', '%'.SerialUnit::normalizeSerial($search).'%'))))
-                ->join('items', 'items.id', '=', 'stocks.item_id')->orderBy('items.code')->select('stocks.*')
+                ->join('items', 'items.id', '=', 'stocks.item_id')
+                ->when($category === 'none', fn ($q) => $q->whereNull('items.item_category_id'))
+                ->when(ctype_digit($category), fn ($q) => $q->where('items.item_category_id', (int) $category))
+                ->orderBy('items.code')->select('stocks.*')
                 ->paginate(50, pageName: 'stok')->withQueryString(),
             'units' => $warehouse->serialUnits()->with('item')->orderBy('item_id')->orderBy('serial_number')->get()->groupBy('item_id'),
             'movements' => StockMovement::query()
@@ -205,6 +230,36 @@ class WarehouseController extends Controller
                 ->where(fn ($q) => $q->where('from_warehouse_id', $warehouse->id)->orWhere('to_warehouse_id', $warehouse->id))
                 ->latest('id')->limit(30)->get(),
         ];
+    }
+
+    /**
+     * How many of an item a warehouse holds, as a subquery column.
+     */
+    private function heldIn(Warehouse $warehouse): Builder
+    {
+        return Stock::query()->select('quantity')->whereColumn('stocks.item_id', 'items.id')->where('stocks.warehouse_id', $warehouse->id)->limit(1);
+    }
+
+    /**
+     * Items as the stock forms pick them: by category, then code.
+     *
+     * @param  Collection<int, Item>  $items
+     */
+    private function catalog(Collection $items): array
+    {
+        $order = ItemCategory::query()->pluck('sort_order', 'id');
+
+        return $items->load('category')
+            ->sortBy(fn (Item $item) => sprintf('%05d %s', $order[$item->item_category_id] ?? 99999, $item->code))
+            ->map(fn (Item $item) => [
+                'code' => $item->code,
+                'name' => $item->name,
+                'unit' => $item->unit,
+                'serial' => $item->tracks_serial,
+                'category' => $item->category?->name ?? 'Tanpa kategori',
+                'icon' => $item->category?->icon ?? 'package',
+                'held' => (int) $item->held,
+            ])->values()->all();
     }
 
     private function serialMatches(Request $request)

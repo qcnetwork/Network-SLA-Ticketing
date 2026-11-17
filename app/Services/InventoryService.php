@@ -7,6 +7,7 @@ use App\Enums\Role;
 use App\Enums\StockMovementType;
 use App\Enums\TicketAction;
 use App\Models\Item;
+use App\Models\ItemCategory;
 use App\Models\MaterialRequest;
 use App\Models\MaterialRequestLine;
 use App\Models\SerialUnit;
@@ -255,7 +256,8 @@ class InventoryService
 
     /**
      * Add or rename items from a warehouse code list (rows of [code, name]). Existing stock is untouched.
-     * New MDM codes are modems, so they start out tracked by SN.
+     * A new item goes into the category its code and name suggest; one in a device category (or an MDM
+     * code) starts out tracked by SN.
      *
      * @param  iterable<array{0: mixed, 1: mixed}>  $rows
      * @return array{created: int, updated: int}
@@ -275,7 +277,9 @@ class InventoryService
                     $updated++;
                 } else {
                     $created++;
-                    $item->tracks_serial = str_starts_with($code, 'MDM');
+                    $category = ItemCategory::guess($code, $name);
+                    $item->item_category_id = $category?->id;
+                    $item->tracks_serial = str_starts_with($code, 'MDM') || (bool) $category?->requires_serial;
                 }
                 $item->fill(['name' => mb_substr($name, 0, 150)])->save();
             }

@@ -1,11 +1,13 @@
 /**
  * Scanning serial numbers with a barcode scanner. A USB or Bluetooth scanner types the code and
  * presses Enter like a keyboard, so Enter here adds the scan to the list instead of submitting the
- * form. With `withMac`, each SN is followed by a scan of its MAC label before the unit is added.
+ * form. With `withMac`, each SN is followed by a scan of its MAC label before the unit is added; the
+ * form may let the person switch that off (devices without a MAC label, such as an SFP).
  * Every SN is checked with the server as it is scanned (`lookupUrl` plus `query`), so a unit that is
  * already registered, or sitting in another warehouse, is flagged at the scanner rather than on save.
  */
 export default ({ lookupUrl, query = {}, withMac = false }) => ({
+    withMac,
     units: [],
     sn: '',
     mac: '',
@@ -44,7 +46,7 @@ export default ({ lookupUrl, query = {}, withMac = false }) => ({
 
                 return;
             }
-            if (withMac) {
+            if (this.withMac) {
                 this.pending = sn;
                 this.$nextTick(() => this.$refs.mac?.focus());
 

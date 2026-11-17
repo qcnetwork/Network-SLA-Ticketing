@@ -5,6 +5,7 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\IncidentController;
+use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\MenuAccessController;
 use App\Http\Controllers\ModemTypeController;
@@ -65,6 +66,9 @@ Route::middleware('auth')->group(function () {
         Route::post('/gudang/barang', [ItemController::class, 'store'])->name('items.store');
         Route::put('/gudang/barang/{item}', [ItemController::class, 'update'])->name('items.update');
         Route::post('/gudang/barang/impor', [ItemController::class, 'import'])->name('items.import');
+        Route::post('/gudang/kategori', [ItemCategoryController::class, 'store'])->name('item-categories.store');
+        Route::put('/gudang/kategori/{category}', [ItemCategoryController::class, 'update'])->name('item-categories.update');
+        Route::delete('/gudang/kategori/{category}', [ItemCategoryController::class, 'destroy'])->name('item-categories.destroy');
         Route::post('/gudang/masuk', [WarehouseController::class, 'receive'])->name('warehouses.receive');
         Route::post('/gudang/kirim', [WarehouseController::class, 'send'])->name('warehouses.send');
         Route::post('/gudang/{warehouse}/retur', [WarehouseController::class, 'returnStock'])->name('warehouses.return');

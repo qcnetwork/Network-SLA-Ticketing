@@ -19,6 +19,16 @@ enum StockMovementType: string
         };
     }
 
+    public function icon(): string
+    {
+        return match ($this) {
+            self::MASUK => 'download',
+            self::KIRIM => 'truck',
+            self::RETUR => 'undo-2',
+            self::PAKAI => 'wrench',
+        };
+    }
+
     public function badgeClasses(): string
     {
         return match ($this) {

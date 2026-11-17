@@ -1,13 +1,17 @@
-@props(['query' => [], 'withMac' => false])
-{{-- Scan box for SN-tracked units; posts serials[i][sn] (and serials[i][mac]). Works with a USB/Bluetooth scanner or typing + Enter. --}}
+@props(['query' => [], 'withMac' => false, 'macToggle' => false])
+{{-- Scan box for SN-tracked units; posts serials[i][sn] (and serials[i][mac]). Works with a USB/Bluetooth scanner or typing + Enter.
+     With mac-toggle, the person can switch the MAC scan off for devices that have no MAC label. --}}
 <div x-data="serialScanner({ lookupUrl: @js(route('warehouses.lookup-serial')), query: @js($query), withMac: @js($withMac) })" class="space-y-2">
     <div class="relative">
         <i data-lucide="scan-barcode" class="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-slate-400"></i>
         <input x-ref="sn" x-model="sn" @keydown.enter.prevent="scanSn()" :disabled="pending !== null" class="input pl-9 font-mono"
             placeholder="Scan / ketik SN lalu Enter" autocomplete="off" autocapitalize="characters" spellcheck="false">
     </div>
-    @if ($withMac)
-        <div x-show="pending !== null" x-cloak class="space-y-1 rounded-lg border border-indigo-200 bg-indigo-50 p-2">
+    @if ($macToggle)
+        <label class="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" x-model="withMac" :disabled="pending !== null" class="rounded border-slate-300">Scan MAC juga setelah SN</label>
+    @endif
+    @if ($withMac || $macToggle)
+        <div x-show="withMac && pending !== null" x-cloak class="space-y-1 rounded-lg border border-indigo-200 bg-indigo-50 p-2">
             <p class="text-xs text-indigo-800">SN <span class="font-mono font-semibold" x-text="pending"></span> — sekarang scan MAC-nya</p>
             <div class="flex gap-2">
                 <input x-ref="mac" x-model="mac" @keydown.enter.prevent="scanMac()" @keydown.escape.prevent="cancelPending()" class="input font-mono text-sm"
