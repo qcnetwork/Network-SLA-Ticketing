@@ -212,7 +212,7 @@ class TicketWorkflowTest extends TestCase
         $this->act($this->technician, $ticket, 'MULAI_PERBAIKAN')->assertSessionHasNoErrors();
         $this->act($this->technician, $ticket, 'MULAI_PERBAIKAN')->assertSessionHasErrors('action');
         $this->act($this->technician, $ticket, 'LAPOR_PERBAIKAN_SELESAI', ['notes' => 'Ganti konektor'])
-            ->assertRedirect('/dashboard');
+            ->assertRedirect('/komplain');
 
         $this->act($this->cs, $ticket, 'KONFIRMASI_TERKENDALA', ['notes' => 'Masih putus'])->assertSessionHasNoErrors();
         $ticket->refresh();
@@ -368,7 +368,7 @@ class TicketWorkflowTest extends TestCase
         $supervisor = $this->userWithRole(Role::SPV);
         $this->actingAs($supervisor)->get("/tickets/{$ticket->ticket_number}")->assertSee('Hapus Tiket');
         $this->delete("/tickets/{$ticket->ticket_number}")
-            ->assertRedirect(route('dashboard'))->assertSessionHas('success');
+            ->assertRedirect(route('complaints.index'))->assertSessionHas('success');
 
         $this->assertModelMissing($ticket);
         $this->assertDatabaseMissing('ticket_histories', ['ticket_id' => $ticket->id]);
@@ -522,7 +522,7 @@ class TicketWorkflowTest extends TestCase
 
         $this->actingAs($this->helpdesk)->get("/tickets/{$ticket->ticket_number}")
             ->assertOk()->assertSee('Klaim & Mulai Cek', false);
-        $this->get('/dashboard?view=table&search=Smoke')->assertOk()->assertSee($ticket->ticket_number);
+        $this->get('/komplain?view=table&search=Smoke')->assertOk()->assertSee($ticket->ticket_number);
         $this->get('/reports')->assertOk()->assertSee('Smoke Customer');
         $this->get('/telegram-logs')->assertOk()->assertSee('TIKET BARU MASUK');
     }

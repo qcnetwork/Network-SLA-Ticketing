@@ -160,6 +160,24 @@ class TelegramService
             .'<i>Tiket masih dalam tahap koordinasi dengan pelanggan.</i>';
     }
 
+    public function installationCreatedMessage(Ticket $ticket): string
+    {
+        $e = self::escape(...);
+        $creator = $ticket->creator;
+
+        return "🏠 <b>[ORDER PASANG BARU · CEK LOKASI]</b>\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."🎫 <b>No. PSB:</b> <code>{$e($ticket->ticket_number)}</code>\n"
+            ."👤 <b>Calon Pelanggan:</b> {$e($ticket->customer_name)}\n"
+            ."📍 <b>Lokasi:</b> {$e($ticket->customer_address ?: '-')}\n"
+            ."📦 <b>Paket:</b> {$e($ticket->package ?: '-')}\n"
+            .($ticket->sales ? "🤝 <b>Sales:</b> {$e($ticket->sales)}\n" : '')
+            .'✍️ <b>Dibuat oleh:</b> '.($creator ? "{$e($creator->name)} ({$creator->role->label()})" : '-')."\n"
+            ."━━━━━━━━━━━━━━━━━━━━\n"
+            ."⏰ <i>Waktu: {$ticket->created_at->format('d/m/Y H:i')}</i>\n"
+            .'<i>Mohon Helpdesk cek coverage lokasi.</i>';
+    }
+
     /**
      * @param  array<string>  $changes
      */
@@ -240,7 +258,7 @@ class TelegramService
     {
         $e = self::escape(...);
 
-        return "📢 <b>[UPDATE STATUS TIKET]</b>\n"
+        return '📢 <b>[UPDATE STATUS '.($ticket->isInstallation() ? 'PSB' : 'TIKET')."]</b>\n"
             ."━━━━━━━━━━━━━━━━━━━━\n"
             ."🎫 <b>No. Tiket:</b> <code>{$e($ticket->ticket_number)}</code>\n"
             ."👤 <b>Pelanggan:</b> {$e($ticket->customer_name)}\n"

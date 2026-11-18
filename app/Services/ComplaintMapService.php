@@ -22,7 +22,7 @@ class ComplaintMapService
 
     public function build(Carbon $from, Carbon $to, ?string $category = null): array
     {
-        $tickets = Ticket::query()
+        $tickets = Ticket::query()->complaints()
             ->whereBetween('created_at', [$from->copy()->startOfDay(), $to->copy()->endOfDay()])
             ->when($category, fn ($query) => $query->where('category', $category))
             ->latest('created_at')

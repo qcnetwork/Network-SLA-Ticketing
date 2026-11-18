@@ -30,13 +30,37 @@ enum TicketAction: string
     case MATERIAL_DITOLAK = 'MATERIAL_DITOLAK';
     case MATERIAL_DIAJUKAN_ULANG = 'MATERIAL_DIAJUKAN_ULANG';
 
+    // New installation (PSB).
+    case PSB_DIBUAT = 'PSB_DIBUAT';
+    case PSB_LANGSUNG_PASANG = 'PSB_LANGSUNG_PASANG';
+    case PSB_PERLU_SURVEY = 'PSB_PERLU_SURVEY';
+    case PSB_TUGAS_SURVEY = 'PSB_TUGAS_SURVEY';
+    case PSB_SURVEY_LAYAK = 'PSB_SURVEY_LAYAK';
+    case PSB_SURVEY_TIDAK_LAYAK = 'PSB_SURVEY_TIDAK_LAYAK';
+    case PSB_TUGAS_PASANG = 'PSB_TUGAS_PASANG';
+    case PSB_MULAI_PASANG = 'PSB_MULAI_PASANG';
+    case PSB_PASANG_SELESAI = 'PSB_PASANG_SELESAI';
+    case PSB_AKTIF = 'PSB_AKTIF';
+    case PSB_BELUM_AKTIF = 'PSB_BELUM_AKTIF';
+    case PSB_KEMBALI_ANTRIAN = 'PSB_KEMBALI_ANTRIAN';
+    case PSB_BATAL = 'PSB_BATAL';
+    case PSB_UBAH_DATA = 'PSB_UBAH_DATA';
+
+    /**
+     * Steps of the installation workflow; the notes and Ubah Teknisi are shared with complaints.
+     */
+    public function isInstallation(): bool
+    {
+        return str_starts_with($this->value, 'PSB_');
+    }
+
     /**
      * Whether the action is triggered from the ticket action panel. Ticket creation and
      * gamas-driven changes are recorded by their own flows instead.
      */
     public function isPerformable(): bool
     {
-        return ! in_array($this, [self::TIKET_DIBUAT, self::UBAH_DATA_PELANGGAN, self::UBAH_PENANGANAN, self::GABUNG_GAMAS, self::LEPAS_GAMAS, self::GAMAS_SELESAI, self::TUTUP_OTOMATIS, self::MATERIAL_DISETUJUI, self::MATERIAL_DITOLAK, self::MATERIAL_DIAJUKAN_ULANG], true);
+        return ! in_array($this, [self::TIKET_DIBUAT, self::UBAH_DATA_PELANGGAN, self::UBAH_PENANGANAN, self::GABUNG_GAMAS, self::LEPAS_GAMAS, self::GAMAS_SELESAI, self::TUTUP_OTOMATIS, self::MATERIAL_DISETUJUI, self::MATERIAL_DITOLAK, self::MATERIAL_DIAJUKAN_ULANG, self::PSB_DIBUAT, self::PSB_UBAH_DATA], true);
     }
 
     /**
@@ -68,6 +92,11 @@ enum TicketAction: string
             self::MATERIAL_DISETUJUI, self::MATERIAL_DITOLAK => [Role::GUDANG, Role::SPV],
             // After a rejection the crew sends corrected material, even once the ticket has moved on.
             self::MATERIAL_DIAJUKAN_ULANG => [Role::TEKNISI, Role::HELPDESK, Role::SPV],
+            // CS takes the order; Helpdesk checks coverage and plans the visits; the crew reports from site.
+            self::PSB_DIBUAT, self::PSB_BATAL, self::PSB_UBAH_DATA => [Role::CS, Role::HELPDESK, Role::SPV],
+            self::PSB_LANGSUNG_PASANG, self::PSB_PERLU_SURVEY, self::PSB_TUGAS_SURVEY, self::PSB_TUGAS_PASANG, self::PSB_KEMBALI_ANTRIAN => [Role::HELPDESK, Role::SPV],
+            self::PSB_SURVEY_LAYAK, self::PSB_SURVEY_TIDAK_LAYAK, self::PSB_MULAI_PASANG, self::PSB_PASANG_SELESAI => [Role::TEKNISI, Role::HELPDESK, Role::SPV],
+            self::PSB_AKTIF, self::PSB_BELUM_AKTIF => [Role::CS, Role::SPV],
         };
     }
 
@@ -99,6 +128,20 @@ enum TicketAction: string
             self::MATERIAL_DISETUJUI => 'Material Disetujui Gudang',
             self::MATERIAL_DITOLAK => 'Material Ditolak Gudang',
             self::MATERIAL_DIAJUKAN_ULANG => 'Material Diajukan Ulang',
+            self::PSB_DIBUAT => 'PSB Dibuat',
+            self::PSB_LANGSUNG_PASANG => 'Lokasi OK, Langsung Pasang',
+            self::PSB_PERLU_SURVEY => 'Perlu Survey',
+            self::PSB_TUGAS_SURVEY => 'Teknisi Survey Ditugaskan',
+            self::PSB_SURVEY_LAYAK => 'Survey: Bisa Dipasang',
+            self::PSB_SURVEY_TIDAK_LAYAK => 'Survey: Tidak Bisa Dipasang',
+            self::PSB_TUGAS_PASANG => 'Teknisi Pasang Ditugaskan',
+            self::PSB_MULAI_PASANG => 'Mulai Pemasangan',
+            self::PSB_PASANG_SELESAI => 'Pemasangan Selesai',
+            self::PSB_AKTIF => 'Pelanggan Aktif',
+            self::PSB_BELUM_AKTIF => 'Belum Aktif',
+            self::PSB_KEMBALI_ANTRIAN => 'Kembali ke Antrian',
+            self::PSB_BATAL => 'PSB Dibatalkan',
+            self::PSB_UBAH_DATA => 'Ubah Data PSB',
         };
     }
 }

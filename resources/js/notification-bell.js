@@ -68,6 +68,7 @@ export default (indexUrl, readAllUrl) => ({
         this.items = data.items;
         this.unread = data.unread;
         this.showCount();
+        this.share(first ? [] : fresh);
 
         // The first load only fills the bell; pop-ups are for what arrives while the page is open.
         if (!first && fresh.length) {
@@ -193,6 +194,15 @@ export default (indexUrl, readAllUrl) => ({
         this.items = this.items.map((item) => ({ ...item, read: true }));
         this.unread = 0;
         this.showCount();
+        this.share([]);
+    },
+
+    /**
+     * Hand each poll to the rest of the page (the dashboard's live log), so it needs no polling of its own.
+     */
+    share(fresh) {
+        window.latestNotifications = { items: this.items, unread: this.unread };
+        window.dispatchEvent(new CustomEvent('notifications:updated', { detail: { items: this.items, unread: this.unread, fresh } }));
     },
 
     toggleMute() {

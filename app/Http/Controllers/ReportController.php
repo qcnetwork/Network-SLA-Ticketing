@@ -51,7 +51,7 @@ class ReportController extends Controller
         return view('reports.heatmap', [
             'map' => $map->build($from, $to, $data['category'] ?? null),
             // From the tickets, so categories retired since still filter their old tickets.
-            'categories' => Ticket::query()->distinct()->orderBy('category')->pluck('category'),
+            'categories' => Ticket::query()->complaints()->distinct()->orderBy('category')->pluck('category'),
         ]);
     }
 

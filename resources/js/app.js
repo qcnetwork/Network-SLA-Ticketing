@@ -1,6 +1,7 @@
 import Alpine from 'alpinejs';
 import { createIcons } from 'lucide';
 import customerPicker from './customer-picker';
+import dashboardLive from './dashboard-live';
 import icons from './icons';
 import mediaViewer from './media-viewer';
 import notificationBell from './notification-bell';
@@ -13,6 +14,7 @@ import topScrollbar from './top-scrollbar';
 
 window.Alpine = Alpine;
 Alpine.data('customerPicker', customerPicker);
+Alpine.data('dashboardLive', dashboardLive);
 Alpine.data('mediaViewer', mediaViewer);
 Alpine.data('notificationBell', notificationBell);
 Alpine.data('optionSearch', optionSearch);

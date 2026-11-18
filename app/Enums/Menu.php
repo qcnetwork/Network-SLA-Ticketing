@@ -11,6 +11,7 @@ namespace App\Enums;
  */
 enum Menu: string
 {
+    case PSB = 'psb';
     case ARCHIVE = 'archive';
     case CUSTOMERS = 'customers';
     case REPORTS = 'reports';
@@ -21,6 +22,7 @@ enum Menu: string
     public function label(): string
     {
         return match ($this) {
+            self::PSB => 'Pasang Baru (PSB)',
             self::ARCHIVE => 'Arsip',
             self::CUSTOMERS => 'Pelanggan',
             self::REPORTS => 'Laporan',
@@ -33,6 +35,7 @@ enum Menu: string
     public function description(): string
     {
         return match ($this) {
+            self::PSB => 'Tiket pemasangan baru: cek lokasi, survey, pasang, aktif',
             self::ARCHIVE => 'Cari semua tiket, termasuk yang sudah tutup',
             self::CUSTOMERS => 'Direktori pelanggan',
             self::REPORTS => 'Laporan SLA, export Excel, dan peta area',
@@ -45,6 +48,7 @@ enum Menu: string
     public function icon(): string
     {
         return match ($this) {
+            self::PSB => 'house-plus',
             self::ARCHIVE => 'archive',
             self::CUSTOMERS => 'user',
             self::REPORTS => 'bar-chart-3',
@@ -57,6 +61,7 @@ enum Menu: string
     public function defaultRoles(): array
     {
         return match ($this) {
+            self::PSB => [Role::CS, Role::HELPDESK, Role::SPV, Role::TEKNISI],
             self::ARCHIVE => [Role::HELPDESK, Role::SPV, Role::TEKNISI, Role::CS],
             self::CUSTOMERS => [Role::CS, Role::HELPDESK, Role::SPV],
             self::REPORTS => [Role::HELPDESK, Role::SPV, Role::CS],

@@ -27,7 +27,7 @@ class ArchiveController extends Controller
         ]);
         $isTechnician = $user->role === Role::TEKNISI;
 
-        $tickets = Ticket::query()
+        $tickets = Ticket::query()->complaints()
             ->with('technicians')
             ->when($isTechnician, fn (Builder $query) => $query->sharedWith($user)
                 ->with(['shares' => fn ($share) => $share->active()->where('user_id', $user->id)]))

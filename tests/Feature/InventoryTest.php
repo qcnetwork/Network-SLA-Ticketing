@@ -107,7 +107,7 @@ class InventoryTest extends TestCase
 
         $this->get('/gudang')->assertOk()->assertSee('Pengajuan Material')->assertSee($ticket->ticket_number);
         // The warehouse sees only tickets with material to approve, and the approval node runs on after closing.
-        $this->get('/dashboard?view=table')->assertOk()->assertSee($ticket->ticket_number)->assertDontSee($next->ticket_number);
+        $this->get('/komplain?view=table')->assertOk()->assertSee($ticket->ticket_number)->assertDontSee($next->ticket_number);
         $this->get("/tickets/{$next->ticket_number}")->assertForbidden();
         $ticket->update(['status' => TicketStatus::TUTUP, 'closed_at' => now()]);
         $this->get("/tickets/{$ticket->ticket_number}")->assertOk()->assertSee('Approval Material')->assertSee('menunggu ACC Gudang');

@@ -10,6 +10,7 @@
             @foreach ([
                 ['route' => 'categories.index', 'icon' => 'tag', 'title' => 'Kategori Kendala', 'description' => 'Pilihan kategori saat membuat tiket dan mengubah kategori.', 'count' => $categoryCount],
                 ['route' => 'modems.index', 'icon' => 'router', 'title' => 'Jenis Modem / ONT', 'description' => 'Saran tipe modem saat Helpdesk mencatat perangkat pelanggan.', 'count' => $modemCount],
+                ['route' => 'packages.index', 'icon' => 'package', 'title' => 'Paket Layanan', 'description' => 'Pilihan paket saat CS membuat tiket Pasang Baru (PSB).', 'count' => $packageCount],
             ] as $link)
                 <a href="{{ route($link['route']) }}" class="flex items-center gap-3 px-6 py-4 transition hover:bg-slate-50">
                     <i data-lucide="{{ $link['icon'] }}" class="h-5 w-5 shrink-0 text-slate-400"></i>

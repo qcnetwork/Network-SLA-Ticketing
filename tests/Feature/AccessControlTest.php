@@ -103,7 +103,7 @@ class AccessControlTest extends TestCase
         $theirs = Ticket::factory()->status(TicketStatus::PERBAIKAN)->assignedTo($other)->create();
         $queued = Ticket::factory()->create();
 
-        $this->actingAs($tech)->get('/dashboard?status=ANTRIAN_HELPDESK')
+        $this->actingAs($tech)->get('/komplain?status=ANTRIAN_HELPDESK')
             ->assertOk()
             ->assertSee($mine->ticket_number)
             ->assertDontSee($theirs->ticket_number)

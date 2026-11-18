@@ -40,6 +40,15 @@ class GeoLocation
     }
 
     /**
+     * Google Maps directions on foot between two pins, the way a cable would roughly follow the road.
+     */
+    public static function routeUrl(float $fromLatitude, float $fromLongitude, float $toLatitude, float $toLongitude): string
+    {
+        return 'https://www.google.com/maps/dir/?api=1&travelmode=walking&origin='.self::format($fromLatitude).','.self::format($fromLongitude)
+            .'&destination='.self::format($toLatitude).','.self::format($toLongitude);
+    }
+
+    /**
      * Google Maps URL for a pin, for linking out of the app.
      */
     public static function mapsUrl(float $latitude, float $longitude): string

@@ -47,8 +47,8 @@ class MenuAccessTest extends TestCase
         $this->actingAs($cs)->get('/telegram-logs')->assertForbidden();
         $this->get('/reports')->assertOk();
 
-        // CS keeps its archive, customers and reports, gains the Telegram feed and loses reports.
-        $this->saveMenus($cs, [Menu::ARCHIVE, Menu::CUSTOMERS, Menu::TELEGRAM_LOGS])->assertRedirect('/hak-akses');
+        // CS keeps its PSB, archive and customers, gains the Telegram feed and loses reports.
+        $this->saveMenus($cs, [Menu::PSB, Menu::ARCHIVE, Menu::CUSTOMERS, Menu::TELEGRAM_LOGS])->assertRedirect('/hak-akses');
 
         $cs->refresh();
         $this->assertSame(['reports' => false, 'telegram_logs' => true], $cs->menu_access);

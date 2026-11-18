@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\MaterialRequestStatus;
 use App\Enums\Role;
 use App\Enums\StockMovementType;
+use App\Enums\TicketKind;
 use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Concerns\HasTechnicians;
@@ -35,6 +36,9 @@ class Ticket extends Model
 
     protected $guarded = ['id'];
 
+    /** @var array<string, mixed> */
+    protected $attributes = ['kind' => 'GANGGUAN'];
+
     /**
      * Every change that moves a ticket between nodes, from any workflow, refreshes the Telegram master list
      * and notifies the roles that work on the node it reached.
@@ -60,6 +64,7 @@ class Ticket extends Model
     protected function casts(): array
     {
         return [
+            'kind' => TicketKind::class,
             'status' => TicketStatus::class,
             'priority' => TicketPriority::class,
             'repair_started_at' => 'datetime',
@@ -67,12 +72,53 @@ class Ticket extends Model
             'closed_at' => 'datetime',
             'latitude' => 'float',
             'longitude' => 'float',
+            'odp_latitude' => 'float',
+            'odp_longitude' => 'float',
+            'odp_distance' => 'integer',
         ];
+    }
+
+    public function isInstallation(): bool
+    {
+        return $this->kind === TicketKind::PSB;
+    }
+
+    /**
+     * Customer complaints (gangguan): what the dashboard, the reports and the archive deal with.
+     */
+    public function scopeComplaints(Builder $query): Builder
+    {
+        return $query->where('kind', TicketKind::GANGGUAN);
+    }
+
+    /**
+     * New installation orders (PSB).
+     */
+    public function scopeInstallations(Builder $query): Builder
+    {
+        return $query->where('kind', TicketKind::PSB);
     }
 
     public function hasLocation(): bool
     {
         return $this->latitude !== null && $this->longitude !== null;
+    }
+
+    public function hasOdpLocation(): bool
+    {
+        return $this->odp_latitude !== null && $this->odp_longitude !== null;
+    }
+
+    public function odpMapsUrl(): ?string
+    {
+        return $this->hasOdpLocation() ? GeoLocation::mapsUrl($this->odp_latitude, $this->odp_longitude) : null;
+    }
+
+    public function odpRouteUrl(): ?string
+    {
+        return $this->hasLocation() && $this->hasOdpLocation()
+            ? GeoLocation::routeUrl($this->odp_latitude, $this->odp_longitude, $this->latitude, $this->longitude)
+            : null;
     }
 
     public function mapsUrl(): ?string
@@ -154,12 +200,13 @@ class Ticket extends Model
 
     /**
      * Limit the query to tickets the given user may see.
-     * Technicians only see repair tickets assigned to them; the warehouse only sees tickets with material to approve.
+     * Technicians only see the tickets they are on site for (a repair, a survey or an installation);
+     * the warehouse only sees tickets with material to approve.
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->role === Role::TEKNISI) {
-            $query->where('status', TicketStatus::PERBAIKAN)->assignedTo($user);
+            $query->whereIn('status', array_filter(TicketStatus::cases(), fn (TicketStatus $status) => $status->isFieldWork()))->assignedTo($user);
         }
         if ($user->role === Role::GUDANG) {
             $query->whereHas('materialRequests');
@@ -205,7 +252,9 @@ class Ticket extends Model
 
     public function scopeWithoutStaleClosed(Builder $query): Builder
     {
-        return $query->where(fn (Builder $q) => $q->where('status', '!=', TicketStatus::TUTUP)
+        $final = array_filter(TicketStatus::cases(), fn (TicketStatus $status) => $status->isFinal());
+
+        return $query->where(fn (Builder $q) => $q->whereNotIn('status', $final)
             ->orWhereNull('closed_at')
             ->orWhere('closed_at', '>=', now()->subDays(self::CLOSED_VISIBLE_DAYS)));
     }

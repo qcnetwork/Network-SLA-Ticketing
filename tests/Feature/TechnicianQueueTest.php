@@ -68,7 +68,7 @@ class TechnicianQueueTest extends TestCase
             ->assertSee('Menunggu teknisi sejak')
             ->assertSee('Tugaskan Teknisi')
             ->assertDontSee('Masukkan Antrian Teknisi');
-        $this->get('/dashboard')->assertOk()->assertSee('Antrian Teknisi');
+        $this->get('/komplain')->assertOk()->assertSee('Antrian Teknisi');
     }
 
     public function test_queued_ticket_is_assigned_later_and_counts_for_the_technician(): void

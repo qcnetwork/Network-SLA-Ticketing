@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\IncidentAction;
 use App\Enums\IncidentStatus;
+use App\Enums\Menu;
 use App\Enums\Role;
 use App\Enums\TicketAction;
 use App\Enums\TicketPriority;
@@ -13,6 +14,7 @@ use App\Models\Incident;
 use App\Models\MaterialRequestLine;
 use App\Models\ModemType;
 use App\Models\SerialUnit;
+use App\Models\ServicePackage;
 use App\Models\Stock;
 use App\Models\Ticket;
 use App\Models\TicketAttachment;
@@ -108,6 +110,9 @@ class TicketController extends Controller
 
         $ticket->load(['creator', 'helpdesk', 'technicians', 'incident', 'histories.user', 'histories.attachments', 'materialRequests.lines.item', 'materialRequests.lines.warehouse', 'materialRequests.lines.serialUnit', 'materialRequests.requester', 'materialRequests.reviewer']);
         $user = request()->user();
+        if ($ticket->isInstallation()) {
+            return $this->showInstallation($ticket, $user);
+        }
         $isCrew = $ticket->status === TicketStatus::PERBAIKAN && $ticket->isAssignedTo($user);
 
         return view('tickets.show', [
@@ -138,6 +143,29 @@ class TicketController extends Controller
             'canJoinIncident' => $ticket->incident_id === null
                 && in_array($ticket->status, IncidentWorkflowService::LINKABLE_STATUSES, true)
                 && request()->user()->hasRole(...IncidentAction::TIKET_DITAUTKAN->allowedRoles()),
+        ]);
+    }
+
+    /**
+     * A new installation order (PSB) has its own flow and page.
+     */
+    private function showInstallation(Ticket $ticket, User $user): View
+    {
+        return view('installations.show', [
+            'ticket' => $ticket,
+            'technicians' => User::technicians()->get(),
+            ...($ticket->status === TicketStatus::PSB_PEMASANGAN || $user->can('resubmitMaterial', $ticket)
+                ? $this->technicianStock($ticket) : ['crewStock' => [], 'stockHolders' => []]),
+            'flow' => [
+                TicketStatus::PSB_CEK_LOKASI,
+                TicketStatus::PSB_SURVEY,
+                TicketStatus::PSB_PEMASANGAN,
+                TicketStatus::PSB_KONFIRMASI,
+                TicketStatus::PSB_SELESAI,
+            ],
+            'urgencyLevels' => TicketWorkflowService::URGENCY_LEVELS,
+            'modemSuggestions' => ModemType::activeNames(),
+            'packages' => ServicePackage::activeNames(),
         ]);
     }
 
@@ -184,6 +212,7 @@ class TicketController extends Controller
         $user = $request->user();
         abort_unless(
             ($ticket->status === TicketStatus::PERBAIKAN && $user->can('perform', [$ticket, TicketAction::LAPOR_PERBAIKAN_SELESAI]))
+                || ($ticket->status === TicketStatus::PSB_PEMASANGAN && $user->can('perform', [$ticket, TicketAction::PSB_PASANG_SELESAI]))
                 || $user->can('resubmitMaterial', $ticket),
             403,
         );
@@ -216,15 +245,20 @@ class TicketController extends Controller
             'urgency_level' => ['nullable', Rule::in(TicketWorkflowService::URGENCY_LEVELS)],
             'upgrade_priority' => ['nullable', 'boolean'],
             'category' => ['nullable', Rule::in(TicketCategory::activeNames())],
+            'odp' => ['nullable', 'string', 'max:100'],
+            'odp_location' => ['nullable', 'string', 'max:255'],
+            'odp_distance' => ['nullable', 'integer', 'min:1', 'max:100000'],
+            'customer_code' => ['nullable', 'string', 'max:50'],
             ...self::MATERIAL_RULES,
             ...DocumentationPhotoStore::rules(),
         ], DocumentationPhotoStore::MESSAGES);
 
         $ticket = $this->workflow->transition($ticket, $action, $request->user(), $data);
 
-        // Technicians lose access once the ticket leaves the repair stage.
+        // Technicians lose access once the ticket leaves the field visit.
         if ($request->user()->cannot('view', $ticket)) {
-            return redirect()->route('dashboard')->with('success', "Tiket {$ticket->ticket_number}: {$action->label()} berhasil");
+            return redirect()->route($ticket->isInstallation() && $request->user()->canAccess(Menu::PSB) ? 'installations.index' : 'complaints.index')
+                ->with('success', "Tiket {$ticket->ticket_number}: {$action->label()} berhasil");
         }
 
         return redirect()->route('tickets.show', $ticket)->with('success', "{$action->label()} berhasil disimpan");
@@ -310,6 +344,6 @@ class TicketController extends Controller
         $ticket->delete();
         Storage::disk(TicketAttachment::DISK)->delete($photoPaths);
 
-        return redirect()->route('dashboard')->with('success', "Tiket {$ticket->ticket_number} berhasil dihapus");
+        return redirect()->route($ticket->isInstallation() ? 'installations.index' : 'complaints.index')->with('success', "Tiket {$ticket->ticket_number} berhasil dihapus");
     }
 }

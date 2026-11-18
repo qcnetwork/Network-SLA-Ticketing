@@ -6,9 +6,11 @@
     // Day-to-day pages stay in the bar; the rest sits in the "Lainnya" menu so the bar does not overflow.
     $nav = array_values(array_filter([
         ['route' => 'dashboard', 'label' => 'Dashboard', 'icon' => 'layout-dashboard', 'active' => 'dashboard'],
+        // Making a ticket starts from this board (or the dashboard), so it is not a menu of its own.
+        ['route' => 'complaints.index', 'label' => 'Tiket Komplain', 'icon' => 'ticket', 'active' => ['complaints.*', 'tickets.create']],
         ['route' => 'incidents.index', 'label' => 'Gamas', 'icon' => 'radio-tower', 'active' => 'incidents.*'],
-        $user->can('create', App\Models\Ticket::class)
-            ? ['route' => 'tickets.create', 'label' => 'Tiket Baru', 'icon' => 'plus-circle', 'active' => 'tickets.create'] : null,
+        $user->canAccess(Menu::PSB)
+            ? ['route' => 'installations.index', 'label' => 'PSB', 'icon' => 'house-plus', 'active' => 'installations.*'] : null,
         $user->canAccess(Menu::ARCHIVE)
             ? ['route' => 'archive.index', 'label' => 'Arsip', 'icon' => 'archive', 'active' => 'archive.*'] : null,
         $user->canAccess(Menu::WAREHOUSE)
@@ -26,7 +28,7 @@
         $user->hasRole(Role::SPV)
             ? ['route' => 'menu-access.index', 'label' => 'Hak Akses', 'icon' => 'key-round', 'active' => 'menu-access.*', 'group' => 'Kelola'] : null,
         $user->hasRole(Role::SPV)
-            ? ['route' => 'settings.edit', 'label' => 'Pengaturan', 'icon' => 'settings', 'active' => ['settings.*', 'categories.*', 'modems.*'], 'group' => 'Kelola'] : null,
+            ? ['route' => 'settings.edit', 'label' => 'Pengaturan', 'icon' => 'settings', 'active' => ['settings.*', 'categories.*', 'modems.*', 'packages.*'], 'group' => 'Kelola'] : null,
     ]));
     // A menu of one is just an extra click.
     if (count($more) === 1) {

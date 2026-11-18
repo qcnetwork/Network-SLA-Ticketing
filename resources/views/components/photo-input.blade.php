@@ -1,7 +1,7 @@
-@props(['id' => 'photos'])
+@props(['id' => 'photos', 'label' => 'Foto/video dokumentasi', 'required' => false])
 @php($limits = App\Services\DocumentationPhotoStore::limits())
 <div x-data="photoInput(5, @js($limits))">
-    <label class="label" for="{{ $id }}">Foto/video dokumentasi <span class="font-normal text-slate-400">(maks. 5 file · foto {{ intdiv($limits['photo'], 1024 ** 2) }} MB, video {{ intdiv($limits['video'], 1024 ** 2) }} MB)</span></label>
+    <label class="label" for="{{ $id }}">{{ $label }}@if ($required) <span class="text-rose-500">*</span>@endif <span class="font-normal text-slate-400">(maks. 5 file · foto {{ intdiv($limits['photo'], 1024 ** 2) }} MB, video {{ intdiv($limits['video'], 1024 ** 2) }} MB)</span></label>
     <input id="{{ $id }}" x-ref="input" type="file" name="photos[]" accept="image/*,video/mp4,video/quicktime,video/webm,video/3gpp" multiple class="sr-only" @change="onChoose($event)">
 
     <div tabindex="0" @dragover.prevent @drop.prevent="onDrop($event)"

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ModemType;
+use App\Models\ServicePackage;
 use App\Models\Setting;
 use App\Models\TicketCategory;
 use App\Services\DatabaseBackup;
@@ -24,6 +25,7 @@ class SettingController extends Controller
             'settings' => Setting::values(),
             'categoryCount' => TicketCategory::query()->where('active', true)->count(),
             'modemCount' => ModemType::query()->where('active', true)->count(),
+            'packageCount' => ServicePackage::query()->where('active', true)->count(),
             'backupFormats' => DatabaseBackup::formats(),
         ]);
     }

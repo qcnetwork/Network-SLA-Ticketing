@@ -105,7 +105,7 @@ class TelegramTicketList
     {
         $order = array_flip(array_map(fn (TicketStatus $status) => $status->value, TicketStatus::cases()));
 
-        return Ticket::query()
+        return Ticket::query()->complaints()
             ->where(fn ($query) => $query->where('status', '!=', TicketStatus::TUTUP)->orWhere('closed_at', '>=', today()))
             ->orderBy('created_at')
             ->get(['ticket_number', 'customer_name', 'status', 'created_at'])

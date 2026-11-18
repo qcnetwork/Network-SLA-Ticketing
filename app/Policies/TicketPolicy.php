@@ -4,7 +4,6 @@ namespace App\Policies;
 
 use App\Enums\Role;
 use App\Enums\TicketAction;
-use App\Enums\TicketStatus;
 use App\Models\Ticket;
 use App\Models\User;
 
@@ -25,6 +24,11 @@ class TicketPolicy
     public function create(User $user): bool
     {
         return $user->hasRole(...TicketAction::TIKET_DIBUAT->allowedRoles());
+    }
+
+    public function createInstallation(User $user): bool
+    {
+        return $user->hasRole(...TicketAction::PSB_DIBUAT->allowedRoles());
     }
 
     public function perform(User $user, Ticket $ticket, TicketAction $action): bool
@@ -57,7 +61,7 @@ class TicketPolicy
 
     private function worksOn(User $user, Ticket $ticket): bool
     {
-        return $ticket->status === TicketStatus::PERBAIKAN && $ticket->isAssignedTo($user);
+        return $ticket->status->isFieldWork() && $ticket->isAssignedTo($user);
     }
 
     public function contactCustomer(User $user, Ticket $ticket): bool

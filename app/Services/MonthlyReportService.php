@@ -60,7 +60,7 @@ class MonthlyReportService
     {
         $year = $start->year;
         $month = $start->month;
-        $tickets = Ticket::query()
+        $tickets = Ticket::query()->complaints()
             ->with(['technicians', 'helpdesk'])
             ->withExists([
                 'histories as was_rechecked' => fn ($query) => $query->where('action', TicketAction::KONFIRMASI_TERKENDALA),

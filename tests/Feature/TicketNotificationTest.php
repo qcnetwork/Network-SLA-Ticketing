@@ -125,30 +125,52 @@ class TicketNotificationTest extends TestCase
         $this->assertSame([], [...$inbox['cs'], ...$inbox['otherCs']]);
     }
 
-    public function test_helpdesk_info_reaches_whoever_holds_the_current_step(): void
+    public function test_ticket_notes_reach_both_desks_and_the_ticket_crew(): void
     {
         $ticket = $this->createTicket($this->cs);
         $this->act($this->cs, $ticket, 'TERUSKAN_HELPDESK');
         $this->act($this->helpdesk, $ticket, 'KLAIM_HELPDESK');
         $this->readAll();
 
-        // Before the repair: every CS, nobody else.
+        // Before the repair: every CS and every other Helpdesk, no technician.
         $this->act($this->helpdesk, $ticket, 'CATATAN_INFO_HELPDESK', ['notes' => 'ONT perlu diganti', 'urgency_level' => 'NORMAL']);
         $inbox = $this->inboxes();
         $this->assertSame(['[NORMAL] Info dari Helpdesk ('.$this->helpdesk->name.'): ONT perlu diganti'], $inbox['cs']);
         $this->assertCount(1, $inbox['otherCs']);
-        $this->assertSame([], [...$inbox['helpdesk'], ...$inbox['otherHelpdesk'], ...$inbox['technician'], ...$inbox['otherTechnician']]);
+        $this->assertCount(1, $inbox['otherHelpdesk']);
+        $this->assertSame([], [...$inbox['helpdesk'], ...$inbox['technician'], ...$inbox['otherTechnician']]);
         $this->assertSame('NORMAL', $ticket->histories()->reorder('id', 'desc')->value('urgency_level'));
         $this->readAll();
 
-        // In repair: only the assigned crew.
+        // A CS urgency note reaches Helpdesk too, not only the Telegram group.
+        $this->act($this->cs, $ticket, 'CATATAN_URGENSI_CS', ['notes' => 'Pelanggan follow up', 'urgency_level' => 'MENDESAK']);
+        $inbox = $this->inboxes();
+        $this->assertSame(['[MENDESAK] Info dari CS ('.$this->cs->name.'): Pelanggan follow up'], $inbox['helpdesk']);
+        $this->assertCount(1, $inbox['otherHelpdesk']);
+        $this->assertCount(1, $inbox['otherCs']);
+        $this->assertSame([], [...$inbox['cs'], ...$inbox['technician']]);
+        $this->readAll();
+
+        // In repair: both desks plus the assigned crew.
         $this->act($this->helpdesk, $ticket, 'PERLU_TEKNISI', ['technician_ids' => [$this->technician->id]]);
         $this->readAll();
         $this->act($this->helpdesk, $ticket, 'CATATAN_INFO_HELPDESK', ['notes' => 'Pelanggan ada di rumah setelah jam 2', 'upgrade_priority' => '1']);
         $inbox = $this->inboxes();
         $this->assertStringContainsString('[INFO] Info dari Helpdesk', $inbox['technician'][0]);
-        $this->assertSame([], [...$inbox['otherTechnician'], ...$inbox['cs'], ...$inbox['otherCs'], ...$inbox['otherHelpdesk']]);
+        $this->assertCount(1, $inbox['cs']);
+        $this->assertCount(1, $inbox['otherHelpdesk']);
+        $this->assertSame([], [...$inbox['otherTechnician'], ...$inbox['helpdesk']]);
         $this->assertSame('TINGGI', $ticket->fresh()->priority->value);
+        $this->readAll();
+
+        // After the repair the crew still hears about the ticket, linked to the dashboard it can open.
+        $this->act($this->technician, $ticket, 'MULAI_PERBAIKAN');
+        $this->act($this->technician, $ticket, 'LAPOR_PERBAIKAN_SELESAI', ['notes' => 'Ganti konektor']);
+        $this->readAll();
+        $this->act($this->cs, $ticket, 'CATATAN_URGENSI_CS', ['notes' => 'Pelanggan tanya hasil', 'urgency_level' => 'INFO']);
+        $this->assertStringContainsString('Info dari CS', $this->inboxes()['technician'][0]);
+        $this->assertSame(route('dashboard', [], false), $this->technician->unreadNotifications()->sole()->data['url']);
+        $this->assertSame([], $this->inboxes()['otherTechnician']);
     }
 
     public function test_only_helpdesk_and_supervisors_send_helpdesk_info(): void

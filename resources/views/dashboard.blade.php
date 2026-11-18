@@ -1,249 +1,198 @@
 <x-layouts.app title="Dashboard">
     @php
-        $query = fn (array $extra) => route('dashboard', array_filter(array_merge($filters, $extra)));
-        $visibleStatuses = $boardStatuses;
-        $hiddenCount = count($hiddenStatuses);
+        $user = auth()->user();
+        $hour = now()->hour;
+        $greeting = match (true) { $hour < 11 => 'Selamat pagi', $hour < 15 => 'Selamat siang', $hour < 18 => 'Selamat sore', default => 'Selamat malam' };
+        $cards = $isTechnician
+            ? [
+                ['label' => 'Tugas Perbaikan', 'value' => $attention->firstWhere('status', App\Enums\TicketStatus::PERBAIKAN)['count'] ?? 0, 'icon' => 'wrench', 'accent' => 'border-t-orange-500', 'url' => route('complaints.index')],
+                ['label' => 'Tugas Survey PSB', 'value' => $attention->firstWhere('status', App\Enums\TicketStatus::PSB_SURVEY)['count'] ?? 0, 'icon' => 'compass', 'accent' => 'border-t-blue-500', 'url' => route('installations.index')],
+                ['label' => 'Tugas Pasang PSB', 'value' => $attention->firstWhere('status', App\Enums\TicketStatus::PSB_PEMASANGAN)['count'] ?? 0, 'icon' => 'house-plus', 'accent' => 'border-t-indigo-500', 'url' => route('installations.index')],
+            ]
+            : array_values(array_filter([
+                ['label' => 'Komplain Terbuka', 'value' => $stats['complaintsOpen'], 'icon' => 'ticket', 'accent' => 'border-t-amber-400', 'url' => route('complaints.index')],
+                ['label' => 'Komplain Masuk Hari Ini', 'value' => $stats['complaintsToday'], 'icon' => 'inbox', 'accent' => 'border-t-cyan-500', 'url' => route('complaints.index')],
+                ['label' => 'Komplain Selesai Hari Ini', 'value' => $stats['complaintsClosedToday'], 'icon' => 'check-circle-2', 'accent' => 'border-t-emerald-500', 'url' => route('complaints.index', ['status' => 'TUTUP'])],
+                $seesInstallations ? ['label' => 'PSB Berjalan', 'value' => $stats['installationsOpen'], 'icon' => 'house-plus', 'accent' => 'border-t-indigo-500', 'url' => route('installations.index'),
+                    'note' => $stats['installationsActiveThisMonth'].' pelanggan baru aktif bulan ini'] : null,
+            ]));
+        $waiting = $attention->sum('count');
     @endphp
 
-    <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-            <h1 class="text-2xl font-bold text-slate-900">{{ $isTechnician ? 'Tugas Perbaikan Saya' : 'Dashboard Tiket' }}</h1>
-            <p class="text-sm text-slate-500">{{ now()->translatedFormat('l, d F Y') }}</p>
-        </div>
-        @can('create', App\Models\Ticket::class)
-            <a href="{{ route('tickets.create') }}" class="btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Buat Tiket</a>
-        @endcan
-    </div>
-
-    @if ($openIncidents->isNotEmpty())
-        <div class="mb-6 rounded-xl border border-red-200 bg-red-50 p-4">
-            <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-red-800"><i data-lucide="radio-tower" class="h-4 w-4"></i>{{ $openIncidents->count() }} gangguan massal sedang berlangsung</div>
-            <div class="flex flex-wrap gap-2">
-                @foreach ($openIncidents as $incident)
-                    <a href="{{ route('incidents.show', $incident) }}" class="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm transition hover:border-red-400">
-                        <span class="font-mono text-xs font-semibold text-red-700">{{ $incident->incident_number }}</span>
-                        <span class="font-medium text-slate-800">{{ $incident->area }}</span>
-                        <span class="text-xs text-slate-500">· {{ $incident->tickets_count }} pelanggan</span>
-                    </a>
-                @endforeach
-            </div>
-        </div>
-    @endif
-
-    {{-- Status summary --}}
-    <div @class(['mb-6 grid grid-cols-2 gap-3', 'sm:grid-cols-5 lg:grid-cols-10' => ! $isTechnician])>
-        <a href="{{ $query(['status' => null]) }}" class="card border-t-4 border-t-slate-700 p-4 transition hover:shadow-md">
-            <div class="text-xs font-medium text-slate-500">Total</div>
-            <div class="mt-1 text-2xl font-bold">{{ $total }}</div>
-        </a>
-        {{-- Every node keeps its count here, even when its kanban column is hidden. --}}
-        @foreach ($summaryStatuses as $status)
-            <a href="{{ $query(['status' => $status->value]) }}"
-               @class(['card border-t-4 p-4 transition hover:shadow-md', $status->accentClasses(), 'ring-2 ring-indigo-400' => ($filters['status'] ?? null) === $status->value])>
-                <div class="flex items-center gap-1 text-xs font-medium text-slate-500"><i data-lucide="{{ $status->icon() }}" class="h-3 w-3"></i>{{ $status->label() }}</div>
-                <div class="mt-1 text-2xl font-bold">{{ $counts[$status->value] ?? 0 }}</div>
-            </a>
-        @endforeach
-    </div>
-
-    {{-- Filters --}}
-    <form method="GET" action="{{ route('dashboard') }}" class="card mb-6 flex flex-col gap-3 p-4 md:flex-row md:items-end">
-        <input type="hidden" name="view" value="{{ $viewMode }}">
-        <div class="flex-1">
-            <label class="label" for="search">Cari</label>
-            <input id="search" name="search" value="{{ $filters['search'] ?? '' }}" class="input" placeholder="No. tiket, nama, nomor WA, kendala, teknisi">
-        </div>
-        @unless ($isTechnician)
+    {{-- dashboardLive keeps the notification log and the [data-live] blocks current without a reload. --}}
+    <div x-data="dashboardLive()">
+        <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-                <label class="label" for="status">Status</label>
-                <select id="status" name="status" class="input">
-                    <option value="ALL">Semua Status</option>
-                    @foreach ($statuses as $status)
-                        <option value="{{ $status->value }}" @selected(($filters['status'] ?? '') === $status->value)>{{ $status->label() }}</option>
-                    @endforeach
-                </select>
+                <h1 class="text-2xl font-bold text-slate-900">{{ $greeting }}, {{ Str::before($user->name, ' ') ?: $user->name }}</h1>
+                <p class="text-sm text-slate-500">{{ now()->translatedFormat('l, d F Y') }} · {{ $user->role->label() }}</p>
             </div>
-        @endunless
-        <div>
-            <label class="label" for="priority">Prioritas</label>
-            <select id="priority" name="priority" class="input">
-                <option value="ALL">Semua Prioritas</option>
-                @foreach ($priorities as $priority)
-                    <option value="{{ $priority->value }}" @selected(($filters['priority'] ?? '') === $priority->value)>{{ $priority->label() }}</option>
-                @endforeach
-            </select>
+            <div class="flex flex-wrap gap-2">
+                @can('create', App\Models\Ticket::class)
+                    <a href="{{ route('tickets.create') }}" class="btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Tiket Komplain</a>
+                @endcan
+                @if ($seesInstallations && $user->can('createInstallation', App\Models\Ticket::class))
+                    <a href="{{ route('installations.create') }}" class="btn-secondary"><i data-lucide="house-plus" class="h-4 w-4 text-indigo-600"></i>PSB Baru</a>
+                @endif
+            </div>
         </div>
-        <div class="flex gap-2">
-            <button class="btn-primary"><i data-lucide="filter" class="h-4 w-4"></i>Terapkan</button>
-            <a href="{{ route('dashboard', ['view' => $viewMode]) }}" class="btn-secondary">Reset</a>
-        </div>
-    </form>
 
-    {{-- View toggle --}}
-    <div class="mb-4 flex items-center justify-between">
-        <div>
-            <p class="text-sm text-slate-500">{{ $shown }} tiket ditampilkan</p>
-            @if (empty($filters['search']))
-                <p class="text-xs text-slate-400">Tiket tutup lebih dari {{ App\Models\Ticket::CLOSED_VISIBLE_DAYS }} hari disembunyikan. Gunakan pencarian untuk menemukannya.</p>
-            @endif
-        </div>
-        <div class="flex flex-wrap items-center justify-end gap-2">
-            @if ($viewMode === 'kanban' && ! $isTechnician)
-                <div class="relative" x-data="{ open: @js($errors->has('visible')) }" @keydown.escape.window="open = false">
-                    <button type="button" @click="open = ! open" class="btn-secondary py-2 text-sm" :aria-expanded="open">
-                        <i data-lucide="columns-3" class="h-4 w-4"></i>Atur Kolom
-                        @if ($hiddenCount)
-                            <span class="rounded-full bg-indigo-100 px-1.5 text-xs font-semibold text-indigo-700">{{ $hiddenCount }} disembunyikan</span>
-                        @endif
-                    </button>
-                    <form method="POST" action="{{ route('dashboard.columns') }}" x-show="open" x-cloak @click.outside="open = false"
-                        class="absolute right-0 z-20 mt-2 w-72 max-w-[calc(100vw-2rem)] space-y-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xl">
-                        @csrf
-                        @foreach (['priority', 'search'] as $keep)
-                            @if (! empty($filters[$keep]))
-                                <input type="hidden" name="{{ $keep }}" value="{{ $filters[$keep] }}">
-                            @endif
+        <div data-live="incidents">
+            @if ($openIncidents->isNotEmpty())
+                <div class="mb-6 rounded-xl border border-red-200 bg-red-50 p-4">
+                    <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-red-800"><i data-lucide="radio-tower" class="h-4 w-4"></i>{{ $openIncidents->count() }} gangguan massal sedang berlangsung</div>
+                    <div class="flex flex-wrap gap-2">
+                        @foreach ($openIncidents as $incident)
+                            <a href="{{ route('incidents.show', $incident) }}" class="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm transition hover:border-red-400">
+                                <span class="font-mono text-xs font-semibold text-red-700">{{ $incident->incident_number }}</span>
+                                <span class="font-medium text-slate-800">{{ $incident->area }}</span>
+                                <span class="text-xs text-slate-500">· {{ $incident->tickets_count }} pelanggan</span>
+                            </a>
                         @endforeach
-                        <p class="text-sm font-semibold text-slate-800">Kolom yang ditampilkan</p>
-                        <div class="space-y-1.5">
-                            @foreach ($statuses as $status)
-                                <label class="flex items-center gap-2 text-sm text-slate-700">
-                                    <input type="checkbox" name="visible[]" value="{{ $status->value }}" @checked(! in_array($status->value, $hiddenStatuses, true)) class="rounded border-slate-300 text-indigo-600">
-                                    <x-status-badge :status="$status" />
-                                </label>
-                            @endforeach
-                        </div>
-                        <x-field-error name="visible" />
-                        <button class="btn-primary w-full">Simpan</button>
-                        <div class="grid gap-2 {{ $focusStatuses ? 'grid-cols-2' : '' }}">
-                            @if ($focusStatuses)
-                                <button name="preset" value="focus" class="btn-secondary px-2 text-xs">Fokus {{ auth()->user()->role->label() }}</button>
-                            @endif
-                            <button name="preset" value="all" class="btn-secondary px-2 text-xs">Tampilkan semua</button>
-                        </div>
-                        <p class="text-xs text-slate-400">Tersimpan untuk akun Anda. Angka ringkasan di atas tetap menampilkan semua node.</p>
-                    </form>
+                    </div>
                 </div>
             @endif
-            <div class="inline-flex rounded-lg border border-slate-300 bg-white p-1">
-                <a href="{{ $query(['view' => 'kanban']) }}" @class(['flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium', 'bg-indigo-600 text-white' => $viewMode === 'kanban', 'text-slate-600' => $viewMode !== 'kanban'])>
-                    <i data-lucide="columns-3" class="h-4 w-4"></i>Kanban
-                </a>
-                <a href="{{ $query(['view' => 'table']) }}" @class(['flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium', 'bg-indigo-600 text-white' => $viewMode === 'table', 'text-slate-600' => $viewMode !== 'table'])>
-                    <i data-lucide="table" class="h-4 w-4"></i>Tabel
-                </a>
+        </div>
+
+        <div class="grid gap-6 lg:grid-cols-3">
+            <div class="min-w-0 space-y-6 lg:col-span-2">
+                {{-- Headline figures --}}
+                <div data-live="cards" @class(['grid gap-3', 'grid-cols-1 sm:grid-cols-3' => $isTechnician, 'grid-cols-2 xl:grid-cols-4' => ! $isTechnician])>
+                    @foreach ($cards as $card)
+                        <a href="{{ $card['url'] }}" class="card border-t-4 p-4 transition hover:shadow-md {{ $card['accent'] }}">
+                            <div class="flex items-center justify-between gap-2 text-xs font-medium text-slate-500">{{ $card['label'] }}<i data-lucide="{{ $card['icon'] }}" class="h-4 w-4 shrink-0 text-slate-400"></i></div>
+                            <div class="mt-1 text-3xl font-bold text-slate-900">{{ $card['value'] }}</div>
+                            @isset($card['note'])
+                                <div class="mt-1 text-xs text-slate-500">{{ $card['note'] }}</div>
+                            @endisset
+                        </a>
+                    @endforeach
+                </div>
+
+                {{-- What waits on this role --}}
+                <div data-live="attention">
+                    @if ($isTechnician)
+                        <div class="card">
+                            <h2 class="flex items-center gap-2 border-b border-slate-100 px-5 py-3 font-semibold text-slate-800"><i data-lucide="list-todo" class="h-4 w-4 text-indigo-600"></i>Tugas Saya</h2>
+                            <ul class="divide-y divide-slate-100">
+                                @forelse ($myVisits as $ticket)
+                                    <li>
+                                        <a href="{{ route('tickets.show', $ticket) }}" class="flex items-start gap-3 px-5 py-3 transition hover:bg-slate-50">
+                                            <i data-lucide="{{ $ticket->status->icon() }}" class="mt-0.5 h-4 w-4 shrink-0 text-orange-500"></i>
+                                            <span class="min-w-0 flex-1">
+                                                <span class="block truncate text-sm font-semibold text-slate-800">{{ $ticket->customer_name }}</span>
+                                                <span class="block text-xs text-slate-500"><span class="font-mono">{{ $ticket->ticket_number }}</span> · {{ $ticket->status->label() }}</span>
+                                                @if ($ticket->customer_address)
+                                                    <span class="block truncate text-xs text-slate-400">{{ $ticket->customer_address }}</span>
+                                                @endif
+                                            </span>
+                                            <i data-lucide="chevron-right" class="mt-0.5 h-4 w-4 shrink-0 text-slate-300"></i>
+                                        </a>
+                                    </li>
+                                @empty
+                                    <li class="px-5 py-8 text-center text-sm text-slate-400">Belum ada tugas. Istirahat dulu.</li>
+                                @endforelse
+                            </ul>
+                        </div>
+                    @elseif ($attention->isNotEmpty() || $pendingMaterial)
+                        <div class="card">
+                            <div class="flex items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
+                                <h2 class="flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="bell-ring" class="h-4 w-4 text-indigo-600"></i>Perlu Ditangani</h2>
+                                <span @class(['rounded-full px-2 text-xs font-semibold', 'bg-rose-100 text-rose-700' => $waiting + $pendingMaterial, 'bg-slate-100 text-slate-500' => ! ($waiting + $pendingMaterial)])>{{ $waiting + $pendingMaterial }}</span>
+                            </div>
+                            <ul class="grid sm:grid-cols-2">
+                                @foreach ($attention as $item)
+                                    <li class="border-b border-slate-100 sm:odd:border-r">
+                                        <a href="{{ $item['url'] }}" @class(['flex items-center gap-3 px-5 py-3 transition hover:bg-slate-50', 'opacity-60' => ! $item['count']])>
+                                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border {{ $item['status']->badgeClasses() }}"><i data-lucide="{{ $item['status']->icon() }}" class="h-4 w-4"></i></span>
+                                            <span class="min-w-0 flex-1">
+                                                <span class="block truncate text-sm font-medium text-slate-800">{{ $item['status']->label() }}</span>
+                                                <span class="block text-xs text-slate-500">{{ $item['status']->kind() === App\Enums\TicketKind::PSB ? 'Pasang Baru' : 'Komplain' }}</span>
+                                            </span>
+                                            <span class="text-lg font-bold text-slate-900">{{ $item['count'] }}</span>
+                                        </a>
+                                    </li>
+                                @endforeach
+                                @if ($pendingMaterial)
+                                    <li class="border-b border-slate-100 sm:odd:border-r">
+                                        <a href="{{ route('warehouses.index') }}" class="flex items-center gap-3 px-5 py-3 transition hover:bg-slate-50">
+                                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-300 bg-amber-100 text-amber-800"><i data-lucide="package" class="h-4 w-4"></i></span>
+                                            <span class="min-w-0 flex-1">
+                                                <span class="block text-sm font-medium text-slate-800">Material menunggu ACC</span>
+                                                <span class="block text-xs text-slate-500">Gudang</span>
+                                            </span>
+                                            <span class="text-lg font-bold text-slate-900">{{ $pendingMaterial }}</span>
+                                        </a>
+                                    </li>
+                                @endif
+                            </ul>
+                        </div>
+                    @endif
+                </div>
+
+                {{-- The way into each menu --}}
+                <section data-live="menus">
+                    <h2 class="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-600"><i data-lucide="layout-grid" class="h-4 w-4"></i>Menu</h2>
+                    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                        @foreach ($menus as $menu)
+                            <a href="{{ route($menu['route']) }}" class="card group flex items-center gap-3 p-3 transition hover:border-indigo-300 hover:shadow-md" title="{{ $menu['description'] }}">
+                                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 transition group-hover:bg-indigo-600 group-hover:text-white">
+                                    <i data-lucide="{{ $menu['icon'] }}" class="h-4 w-4"></i>
+                                </span>
+                                <span class="min-w-0 flex-1">
+                                    <span class="block truncate text-sm font-semibold text-slate-800">{{ $menu['label'] }}</span>
+                                    <span class="block truncate text-xs text-slate-500">{{ $menu['figure'] ?? $menu['description'] }}</span>
+                                </span>
+                            </a>
+                        @endforeach
+                    </div>
+                </section>
             </div>
+
+            {{-- Live notification log: follows the navbar bell's polling, newest on top. --}}
+            <aside class="min-w-0">
+                <div class="card flex flex-col lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]">
+                    <div class="flex items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
+                        <h2 class="flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="bell" class="h-4 w-4 text-indigo-600"></i>Log Notifikasi</h2>
+                        <span class="flex items-center gap-2 text-xs text-slate-500">
+                            <span x-show="unread" x-cloak x-text="unread + ' baru'" class="rounded-full bg-rose-100 px-2 font-semibold text-rose-700"></span>
+                            <span class="flex items-center gap-1.5" :title="updatedAt ? 'Diperbarui ' + updatedAt : 'Menghubungkan...'">
+                                <span class="relative flex h-2 w-2">
+                                    <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                                </span>
+                                Live
+                            </span>
+                        </span>
+                    </div>
+                    <ul class="max-h-[32rem] flex-1 divide-y divide-slate-100 overflow-y-auto lg:max-h-none">
+                        <template x-for="item in items" :key="item.id">
+                            <li>
+                                <a :href="item.url" class="flex gap-3 px-5 py-3 transition-colors duration-700 hover:bg-slate-50"
+                                    :class="flash.has(item.id) ? 'bg-amber-50' : (item.read ? '' : 'bg-indigo-50/40')">
+                                    <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
+                                        :class="item.read ? 'bg-slate-100 text-slate-400' : 'bg-indigo-100 text-indigo-600'">
+                                        <i :data-lucide="item.icon" class="h-3.5 w-3.5"></i>
+                                    </span>
+                                    <span class="min-w-0 flex-1">
+                                        <span class="flex items-start justify-between gap-2">
+                                            <span class="text-sm text-slate-800" :class="item.read ? 'font-medium' : 'font-semibold'" x-text="item.title"></span>
+                                            <span x-show="! item.read" class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-indigo-500"></span>
+                                        </span>
+                                        <span class="line-clamp-2 block text-xs text-slate-600" x-text="item.body"></span>
+                                        <span class="mt-0.5 block text-[11px] text-slate-400" x-text="item.time"></span>
+                                    </span>
+                                </a>
+                            </li>
+                        </template>
+                        <li x-show="! loaded" class="px-5 py-8 text-center text-sm text-slate-400">Memuat notifikasi...</li>
+                        <li x-show="loaded && ! items.length" x-cloak class="px-5 py-8 text-center text-sm text-slate-400">Belum ada notifikasi</li>
+                    </ul>
+                    <div class="flex items-center justify-between gap-2 border-t border-slate-100 px-5 py-2.5 text-xs">
+                        <span class="text-slate-400" x-text="updatedAt ? 'Diperbarui ' + updatedAt : ''"></span>
+                        <a href="{{ route('notifications.history') }}" class="font-semibold text-indigo-600 hover:underline">Lihat semua</a>
+                    </div>
+                </div>
+            </aside>
         </div>
     </div>
-
-    @if ($viewMode === 'kanban')
-        {{-- On wider screens the board scrolls from a bar above it; phones keep swiping. --}}
-        <div x-data="topScrollbar">
-            <div x-ref="bar" x-show="overflows" x-cloak @scroll="sync('bar')" class="mb-2 hidden overflow-x-auto overflow-y-hidden sm:block" aria-hidden="true">
-                <div class="h-px" :style="`width: ${width}px`"></div>
-            </div>
-            <div x-ref="body" @scroll="sync('body')" class="-mx-4 snap-x snap-mandatory scroll-px-4 overflow-x-auto px-4 pb-4 sm:mx-0 sm:snap-none sm:px-0 sm:scrollbar-none">
-                <div class="flex gap-4" style="min-width: max-content">
-                    @foreach ($visibleStatuses as $status)
-                        @php $column = $columns[$status->value]; @endphp
-                        <section class="flex w-[calc(100vw-3rem)] max-w-72 shrink-0 snap-start flex-col rounded-xl bg-slate-200/60 p-3">
-                            <header class="mb-3 flex items-center justify-between">
-                                <x-status-badge :status="$status" />
-                                <span class="rounded-full bg-white px-2 text-xs font-bold text-slate-600">{{ $column->total() }}</span>
-                            </header>
-                            <div class="flex-1 space-y-3">
-                                @forelse ($column as $ticket)
-                                    <a href="{{ route('tickets.show', $ticket) }}" class="block rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-indigo-300 hover:shadow-md">
-                                        <div class="mb-1 flex items-center justify-between gap-2">
-                                            <span class="font-mono text-xs font-semibold text-indigo-700">{{ $ticket->ticket_number }}</span>
-                                            <x-priority-badge :priority="$ticket->priority" />
-                                        </div>
-                                        <div class="text-sm font-semibold text-slate-800">{{ $ticket->customer_name }}</div>
-                                        <div class="text-xs text-slate-500">{{ $ticket->category }}</div>
-                                        <p class="mt-2 line-clamp-2 text-xs text-slate-600">{{ $ticket->complaint }}</p>
-                                        <div class="mt-2 flex items-center justify-between text-[11px] text-slate-400">
-                                            <span>{{ $ticket->technicianNames() ?: $ticket->helpdesk?->name ?? 'Belum diambil' }}</span>
-                                            <span title="{{ $ticket->updated_at->format('d/m/Y H:i') }}">{{ $ticket->updated_at->diffForHumans() }}</span>
-                                        </div>
-                                    </a>
-                                @empty
-                                    <p class="rounded-lg border border-dashed border-slate-300 py-6 text-center text-xs text-slate-400">Tidak ada tiket</p>
-                                @endforelse
-                            </div>
-                            @if ($column->hasPages())
-                                <nav class="mt-3 flex items-center justify-between gap-2 text-xs" aria-label="Halaman {{ $status->label() }}">
-                                    @if ($column->onFirstPage())
-                                        <span class="rounded-md bg-white/50 px-2.5 py-1.5 text-slate-300">&lsaquo; Sebelumnya</span>
-                                    @else
-                                        <a href="{{ $column->previousPageUrl() }}" class="rounded-md bg-white px-2.5 py-1.5 font-semibold text-slate-600 shadow-sm hover:text-indigo-700">&lsaquo; Sebelumnya</a>
-                                    @endif
-                                    <span class="text-slate-500">{{ $column->currentPage() }} / {{ $column->lastPage() }}</span>
-                                    @if ($column->hasMorePages())
-                                        <a href="{{ $column->nextPageUrl() }}" class="rounded-md bg-white px-2.5 py-1.5 font-semibold text-slate-600 shadow-sm hover:text-indigo-700">Berikutnya &rsaquo;</a>
-                                    @else
-                                        <span class="rounded-md bg-white/50 px-2.5 py-1.5 text-slate-300">Berikutnya &rsaquo;</span>
-                                    @endif
-                                </nav>
-                            @endif
-                        </section>
-                    @endforeach
-                </div>
-            </div>
-        </div>
-    @else
-        {{-- Phones get stacked cards; the table needs more width than a phone has. --}}
-        <div class="space-y-3 md:hidden">
-            @forelse ($tickets as $ticket)
-                <a href="{{ route('tickets.show', $ticket) }}" class="card block p-4 transition hover:border-indigo-300">
-                    <div class="mb-1 flex items-center justify-between gap-2">
-                        <span class="font-mono text-xs font-semibold text-indigo-700">{{ $ticket->ticket_number }}</span>
-                        <x-priority-badge :priority="$ticket->priority" />
-                    </div>
-                    <div class="font-semibold text-slate-800">{{ $ticket->customer_name }}</div>
-                    <div class="text-xs text-slate-500">{{ $ticket->customer_phone }} · {{ $ticket->category }}</div>
-                    <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
-                        <x-status-badge :status="$ticket->status" />
-                        <span class="text-xs text-slate-500">{{ $ticket->updated_at->diffForHumans() }}</span>
-                    </div>
-                    <div class="mt-1 text-xs text-slate-500">Petugas: {{ $ticket->technicianNames() ?: $ticket->helpdesk?->name ?? '-' }}</div>
-                </a>
-            @empty
-                <div class="card px-4 py-10 text-center text-sm text-slate-400">Tidak ada tiket yang cocok dengan filter</div>
-            @endforelse
-        </div>
-        <div class="card hidden overflow-x-auto md:block">
-            <table class="min-w-full divide-y divide-slate-200 text-sm">
-                <thead class="bg-slate-50 text-left text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                    <tr>
-                        <th class="px-4 py-3">No. Tiket</th>
-                        <th class="px-4 py-3">Pelanggan</th>
-                        <th class="px-4 py-3">Kategori</th>
-                        <th class="px-4 py-3">Prioritas</th>
-                        <th class="px-4 py-3">Status</th>
-                        <th class="px-4 py-3">Petugas</th>
-                        <th class="px-4 py-3">Diperbarui</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                    @forelse ($tickets as $ticket)
-                        <tr class="hover:bg-slate-50">
-                            <td class="px-4 py-3"><a href="{{ route('tickets.show', $ticket) }}" class="font-mono text-xs font-semibold text-indigo-700 hover:underline">{{ $ticket->ticket_number }}</a></td>
-                            <td class="px-4 py-3">
-                                <div class="font-medium">{{ $ticket->customer_name }}</div>
-                                <div class="text-xs text-slate-500">{{ $ticket->customer_phone }}</div>
-                            </td>
-                            <td class="px-4 py-3 text-slate-600">{{ $ticket->category }}</td>
-                            <td class="px-4 py-3"><x-priority-badge :priority="$ticket->priority" /></td>
-                            <td class="px-4 py-3"><x-status-badge :status="$ticket->status" /></td>
-                            <td class="px-4 py-3 text-slate-600">{{ $ticket->technicianNames() ?: $ticket->helpdesk?->name ?? '-' }}</td>
-                            <td class="px-4 py-3 text-xs text-slate-500">{{ $ticket->updated_at->diffForHumans() }}</td>
-                        </tr>
-                    @empty
-                        <tr><td colspan="7" class="px-4 py-10 text-center text-slate-400">Tidak ada tiket yang cocok dengan filter</td></tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-        <div class="mt-4">{{ $tickets->links() }}</div>
-    @endif
 </x-layouts.app>

@@ -50,7 +50,7 @@ class CustomerController extends Controller
             ->limit(8)
             ->get();
 
-        $openTickets = Ticket::query()
+        $openTickets = Ticket::query()->complaints()
             ->whereIn('customer_id', $customers->pluck('code'))
             ->where('status', '!=', TicketStatus::TUTUP)
             ->latest('id')

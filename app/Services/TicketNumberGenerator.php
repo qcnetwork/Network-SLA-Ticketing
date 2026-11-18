@@ -2,17 +2,18 @@
 
 namespace App\Services;
 
+use App\Enums\TicketKind;
 use App\Models\Ticket;
 use Illuminate\Support\Carbon;
 
 class TicketNumberGenerator
 {
     /**
-     * Next number in the TCK-YYYYMMDD-XXXX format. Call inside a DB transaction.
+     * Next number in the TCK-YYYYMMDD-XXXX format (PSB-YYYYMMDD-XXXX for installations). Call inside a DB transaction.
      */
-    public function next(?Carbon $date = null): string
+    public function next(?Carbon $date = null, TicketKind $kind = TicketKind::GANGGUAN): string
     {
-        $prefix = 'TCK-'.($date ?? now())->format('Ymd').'-';
+        $prefix = $kind->numberPrefix().'-'.($date ?? now())->format('Ymd').'-';
 
         $last = Ticket::query()
             ->where('ticket_number', 'like', $prefix.'%')

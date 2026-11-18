@@ -1,7 +1,7 @@
 <x-layouts.app title="Tiket Baru">
     <div class="mx-auto max-w-3xl">
-        <a href="{{ route('dashboard') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
-            <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke dashboard
+        <a href="{{ route('complaints.index') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
+            <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke Tiket Komplain
         </a>
 
         <form method="POST" action="{{ route('tickets.store') }}" class="card p-6">
@@ -123,7 +123,7 @@
             </div>
 
             <div class="mt-6 flex justify-end gap-2">
-                <a href="{{ route('dashboard') }}" class="btn-secondary">Batal</a>
+                <a href="{{ route('complaints.index') }}" class="btn-secondary">Batal</a>
                 <button class="btn-primary"><i data-lucide="save" class="h-4 w-4"></i>Simpan Tiket</button>
             </div>
         </form>

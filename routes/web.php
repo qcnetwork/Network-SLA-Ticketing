@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\Auth\LoginController;
+use App\Http\Controllers\ComplaintBoardController;
 use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\IncidentController;
+use App\Http\Controllers\InstallationController;
 use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\MenuAccessController;
@@ -12,6 +14,7 @@ use App\Http\Controllers\ModemTypeController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\ServicePackageController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\TicketCategoryController;
 use App\Http\Controllers\TicketController;
@@ -29,7 +32,8 @@ Route::middleware('auth')->group(function () {
     Route::redirect('/', '/dashboard');
     Route::post('/logout', [LoginController::class, 'destroy'])->name('logout');
     Route::get('/dashboard', DashboardController::class)->name('dashboard');
-    Route::post('/dashboard/columns', [DashboardController::class, 'columns'])->name('dashboard.columns');
+    Route::get('/komplain', ComplaintBoardController::class)->name('complaints.index');
+    Route::post('/komplain/kolom', [ComplaintBoardController::class, 'columns'])->name('complaints.columns');
 
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::get('/notifications/history', [NotificationController::class, 'history'])->name('notifications.history');
@@ -58,6 +62,14 @@ Route::middleware('auth')->group(function () {
     Route::get('/pelanggan', [CustomerController::class, 'index'])->middleware('menu:customers')->name('customers.index');
     // The ticket form's picker: open to whoever may make tickets, even without the customer menu.
     Route::get('/pelanggan/cari', [CustomerController::class, 'search'])->name('customers.search');
+
+    // New installations (PSB): their own board and order form. Each order opens on the ticket page.
+    Route::middleware('menu:psb')->group(function () {
+        Route::get('/psb', [InstallationController::class, 'index'])->name('installations.index');
+        Route::get('/psb/baru', [InstallationController::class, 'create'])->name('installations.create');
+        Route::post('/psb', [InstallationController::class, 'store'])->name('installations.store');
+    });
+    Route::put('/psb/{ticket}/data', [InstallationController::class, 'update'])->name('installations.update');
 
     Route::get('/arsip', [ArchiveController::class, 'index'])->middleware('menu:archive')->name('archive.index');
 
@@ -109,6 +121,7 @@ Route::middleware('auth')->group(function () {
         Route::put('/hak-akses', [MenuAccessController::class, 'update'])->name('menu-access.update');
         Route::resource('categories', TicketCategoryController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['categories' => 'id']);
         Route::resource('modems', ModemTypeController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['modems' => 'id']);
+        Route::resource('packages', ServicePackageController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['packages' => 'id']);
         Route::get('/settings', [SettingController::class, 'edit'])->name('settings.edit');
         Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
         Route::post('/settings/telegram-test', [SettingController::class, 'test'])->name('settings.test');
