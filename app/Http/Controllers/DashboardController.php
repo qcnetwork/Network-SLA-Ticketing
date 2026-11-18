@@ -8,6 +8,7 @@ use App\Enums\TicketKind;
 use App\Enums\TicketStatus;
 use App\Models\Incident;
 use App\Models\MaterialRequest;
+use App\Models\Sale;
 use App\Models\Ticket;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -65,6 +66,7 @@ class DashboardController extends Controller
                 ? Ticket::query()->visibleTo($user)->with('technicians')->latest('updated_at')->limit(10)->get()
                 : collect(),
             'pendingMaterial' => $user->canAccess(Menu::WAREHOUSE_MANAGE) ? MaterialRequest::query()->pending()->count() : 0,
+            'unpaidSales' => $user->canAccess(Menu::WAREHOUSE_MANAGE) ? Sale::query()->unpaid()->count() : 0,
             'menus' => $this->menus($user, $counts, $sum, $open),
         ]);
     }
@@ -103,7 +105,7 @@ class DashboardController extends Controller
                 'figure' => $sum($open(TicketKind::PSB)).' berjalan'] : null,
             ['route' => 'incidents.index', 'label' => 'Gamas', 'icon' => 'radio-tower', 'description' => 'Gangguan massal per area',
                 'figure' => $incidents ? "{$incidents} aktif" : 'Tidak ada'],
-            $user->canAccess(Menu::WAREHOUSE) ? ['route' => 'warehouses.index', 'label' => $user->role === Role::TEKNISI ? 'Stok Saya' : 'Gudang', 'icon' => 'warehouse', 'description' => 'Stok barang dan ACC material', 'figure' => null] : null,
+            $user->canAccess(Menu::WAREHOUSE) ? ['route' => 'warehouses.index', 'label' => $user->role === Role::TEKNISI ? 'Stok Saya' : 'Gudang', 'icon' => 'warehouse', 'description' => 'Stok barang, ACC material, dan penjualan ke mitra', 'figure' => null] : null,
             $user->canAccess(Menu::CUSTOMERS) ? ['route' => 'customers.index', 'label' => 'Pelanggan', 'icon' => 'user', 'description' => 'Direktori pelanggan', 'figure' => null] : null,
             $user->canAccess(Menu::REPORTS) ? ['route' => 'reports.index', 'label' => 'Laporan', 'icon' => 'bar-chart-3', 'description' => 'SLA bulanan, export Excel, peta area', 'figure' => null] : null,
             $user->canAccess(Menu::ARCHIVE) ? ['route' => 'archive.index', 'label' => 'Arsip', 'icon' => 'archive', 'description' => 'Cari tiket lama yang sudah ditutup', 'figure' => null] : null,

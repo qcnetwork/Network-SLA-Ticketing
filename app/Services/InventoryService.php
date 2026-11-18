@@ -3,19 +3,25 @@
 namespace App\Services;
 
 use App\Enums\MaterialRequestStatus;
+use App\Enums\PaymentStatus;
 use App\Enums\Role;
 use App\Enums\StockMovementType;
 use App\Enums\TicketAction;
+use App\Enums\UsagePurpose;
 use App\Models\Item;
 use App\Models\ItemCategory;
 use App\Models\MaterialRequest;
 use App\Models\MaterialRequestLine;
+use App\Models\MaterialUsage;
+use App\Models\Partner;
+use App\Models\Sale;
 use App\Models\SerialUnit;
 use App\Models\Stock;
 use App\Models\StockMovement;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Warehouse;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -23,7 +29,7 @@ use Illuminate\Validation\ValidationException;
 /**
  * Stock moves only through here, so every change in a warehouse has a matching movement row:
  * material comes into the main warehouse, goes out to a technician, comes back as a return,
- * or is used up on a ticket's repair once the warehouse approves the resume that reports it. Items that track serials (modems) move one scanned unit
+ * is used up on a ticket's repair once the warehouse approves the resume that reports it, or is sold to a partner. Items that track serials (modems) move one scanned unit
  * at a time, so the warehouse always knows where each SN is.
  */
 class InventoryService
@@ -216,16 +222,37 @@ class InventoryService
         return DB::transaction(function () use ($request, $actor, $notes) {
             $request = $this->lockPending($request);
             $ticket = $request->ticket;
+            // The approved material also lands in the usage log, beside what the warehouse records by hand.
+            $usage = MaterialUsage::query()->create([
+                'used_at' => today(),
+                'purpose' => $ticket->isInstallation() ? UsagePurpose::PEMASANGAN_BARU : UsagePurpose::FREE_PERBAIKAN,
+                'project' => $ticket->ticket_number,
+                'location' => mb_substr(collect([$ticket->customer_name, $ticket->customer_address])->filter()->implode(' · '), 0, 255) ?: $ticket->ticket_number,
+                'team' => mb_substr($ticket->technicians()->pluck('name')->implode(', '), 0, 150) ?: null,
+                'ticket_id' => $ticket->id,
+                'material_request_id' => $request->id,
+                'user_id' => $actor->id,
+            ]);
             foreach ($request->lines as $line) {
+                $usage->lines()->create([
+                    'item_id' => $line->item_id,
+                    'item_name' => $line->item->name,
+                    'warehouse_id' => $line->warehouse_id,
+                    'serial_unit_id' => $line->serialUnit?->id,
+                    'serial_number' => $line->serialUnit?->serial_number,
+                    'mac' => $line->serialUnit?->mac,
+                    'quantity' => $line->quantity,
+                    'notes' => $line->notes,
+                ]);
                 if ($line->serialUnit) {
                     $serial = $this->unitIn($line->serialUnit->serial_number, $line->warehouse, 'material_request', $line->item);
-                    $this->move(StockMovementType::PAKAI, $line->item, 1, $line->warehouse, null, $actor, $line->notes, $ticket, $serial);
+                    $this->move(StockMovementType::PAKAI, $line->item, 1, $line->warehouse, null, $actor, $line->notes, $ticket, $serial, usage: $usage);
                     $serial->update(['warehouse_id' => null, 'ticket_id' => $ticket->id]);
 
                     continue;
                 }
                 try {
-                    $this->move(StockMovementType::PAKAI, $line->item, $line->quantity, $line->warehouse, null, $actor, $line->notes, $ticket);
+                    $this->move(StockMovementType::PAKAI, $line->item, $line->quantity, $line->warehouse, null, $actor, $line->notes, $ticket, usage: $usage);
                 } catch (ValidationException $e) {
                     throw ValidationException::withMessages(['material_request' => $e->errors()['quantity'] ?? $e->getMessage()]);
                 }
@@ -241,6 +268,203 @@ class InventoryService
     public function rejectRequest(MaterialRequest $request, User $actor, string $reason): MaterialRequest
     {
         return DB::transaction(fn () => $this->review($this->lockPending($request), MaterialRequestStatus::REJECTED, TicketAction::MATERIAL_DITOLAK, $actor, $reason));
+    }
+
+    /**
+     * Sell stock out of the main warehouse. The buyer is a partner (by id) or someone typed in; each line is an
+     * item with its unit price and either a quantity or, for a device, the scanned SNs.
+     *
+     * @param  array{partner_id?: mixed, buyer_name?: ?string, buyer_phone?: ?string, sold_at?: ?string, paid?: mixed, notes?: ?string}  $sale
+     * @param  array<array{item?: ?string, quantity?: mixed, price?: mixed, serials?: array<string>}>  $lines
+     */
+    public function sell(array $sale, array $lines, User $actor): Sale
+    {
+        $lines = collect($lines)->filter(fn ($line) => trim((string) ($line['item'] ?? '')) !== '')->values();
+        if ($lines->isEmpty()) {
+            throw ValidationException::withMessages(['lines' => 'Tambahkan minimal satu barang']);
+        }
+
+        return DB::transaction(function () use ($sale, $lines, $actor) {
+            $partner = filled($sale['partner_id'] ?? null) ? Partner::query()->active()->find((int) $sale['partner_id']) : null;
+            if (filled($sale['partner_id'] ?? null) && ! $partner) {
+                throw ValidationException::withMessages(['partner_id' => 'Mitra tidak ditemukan atau sudah nonaktif']);
+            }
+            $buyer = $partner?->name ?? trim((string) ($sale['buyer_name'] ?? ''));
+            if ($buyer === '') {
+                throw ValidationException::withMessages(['buyer_name' => 'Pilih mitra atau isi nama pembeli']);
+            }
+            $soldAt = Carbon::parse($sale['sold_at'] ?? today())->startOfDay();
+            $paid = filter_var($sale['paid'] ?? false, FILTER_VALIDATE_BOOL);
+            $notes = trim((string) ($sale['notes'] ?? '')) ?: null;
+
+            $record = Sale::query()->create([
+                'sale_number' => Sale::nextNumber($soldAt),
+                'partner_id' => $partner?->id,
+                'buyer_name' => mb_substr($buyer, 0, 150),
+                'buyer_phone' => $partner ? $partner->phone : (trim((string) ($sale['buyer_phone'] ?? '')) ?: null),
+                'sold_at' => $soldAt,
+                'payment_status' => $paid ? PaymentStatus::LUNAS : PaymentStatus::BELUM_LUNAS,
+                'paid_at' => $paid ? now() : null,
+                'paid_by' => $paid ? $actor->id : null,
+                'notes' => $notes ? mb_substr($notes, 0, 255) : null,
+                'user_id' => $actor->id,
+            ]);
+            $main = Warehouse::main();
+            $movementNote = "Dijual ke {$record->buyer_name} ({$record->sale_number})";
+
+            $total = 0;
+            foreach ($lines as $line) {
+                $item = $this->findItem($line['item'], 'lines');
+                $price = (int) ($line['price'] ?? -1);
+                if ($price < 0) {
+                    throw ValidationException::withMessages(['lines' => "Isi harga jual {$item->code}"]);
+                }
+
+                if ($item->tracks_serial) {
+                    $serials = collect($line['serials'] ?? [])->map(fn ($sn) => SerialUnit::normalizeSerial($sn))->filter()->unique()->values();
+                    if ($serials->isEmpty()) {
+                        throw ValidationException::withMessages(['lines' => "Scan SN {$item->code} yang dijual"]);
+                    }
+                    foreach ($serials as $number) {
+                        $serial = $this->unitIn($number, $main, 'lines', $item);
+                        $this->move(StockMovementType::JUAL, $item, 1, $main, null, $actor, $movementNote, serial: $serial, sale: $record);
+                        $serial->update(['warehouse_id' => null, 'sale_id' => $record->id]);
+                    }
+                    $quantity = $serials->count();
+                } else {
+                    $quantity = (int) ($line['quantity'] ?? 0);
+                    if ($quantity < 1) {
+                        throw ValidationException::withMessages(['lines' => "Jumlah {$item->code} minimal 1"]);
+                    }
+                    try {
+                        $this->move(StockMovementType::JUAL, $item, $quantity, $main, null, $actor, $movementNote, sale: $record);
+                    } catch (ValidationException $e) {
+                        throw ValidationException::withMessages(['lines' => $e->errors()['quantity'] ?? $e->getMessage()]);
+                    }
+                }
+
+                $record->lines()->create(['item_id' => $item->id, 'quantity' => $quantity, 'unit_price' => $price, 'subtotal' => $price * $quantity]);
+                $total += $price * $quantity;
+            }
+            $record->update(['total' => $total]);
+
+            return $record;
+        });
+    }
+
+    /**
+     * Record material used on a job outside a ticket's resume (or beside it): new installs, swaps, network
+     * work. Everything is taken from one warehouse, the main one or a technician's, and leaves stock at once.
+     *
+     * @param  array{used_at?: ?string, purpose: string, project?: ?string, location: string, team?: ?string, ticket_id?: ?int, removed_device?: ?string, notes?: ?string}  $data
+     * @param  array<array{item?: ?string, quantity?: mixed, serials?: array<string>, notes?: ?string}>  $lines
+     */
+    public function recordUsage(array $data, array $lines, Warehouse $source, User $actor): MaterialUsage
+    {
+        $lines = collect($lines)->filter(fn ($line) => trim((string) ($line['item'] ?? '')) !== '')->values();
+        if ($lines->isEmpty()) {
+            throw ValidationException::withMessages(['lines' => 'Tambahkan minimal satu barang']);
+        }
+        $text = fn (?string $value, int $max) => ($value = trim((string) $value)) === '' ? null : mb_substr($value, 0, $max);
+
+        return DB::transaction(function () use ($data, $lines, $source, $actor, $text) {
+            $usage = MaterialUsage::query()->create([
+                'used_at' => Carbon::parse($data['used_at'] ?? today())->startOfDay(),
+                'purpose' => UsagePurpose::from($data['purpose']),
+                'project' => $text($data['project'] ?? null, 100),
+                'location' => $text($data['location'] ?? null, 255) ?? throw ValidationException::withMessages(['location' => 'Isi lokasi pemasangan']),
+                'team' => $text($data['team'] ?? null, 150),
+                'ticket_id' => $data['ticket_id'] ?? null,
+                'removed_device' => $text($data['removed_device'] ?? null, 255),
+                'notes' => $text($data['notes'] ?? null, 255),
+                'user_id' => $actor->id,
+            ]);
+            $movementNote = mb_substr("{$usage->purpose->label()} · {$usage->location}", 0, 255);
+
+            foreach ($lines as $line) {
+                $item = $this->findItem($line['item'], 'lines');
+                $notes = $text($line['notes'] ?? null, 255);
+
+                if ($item->tracks_serial) {
+                    $serials = collect($line['serials'] ?? [])->map(fn ($sn) => SerialUnit::normalizeSerial($sn))->filter()->unique()->values();
+                    if ($serials->isEmpty()) {
+                        throw ValidationException::withMessages(['lines' => "Scan SN {$item->code} yang dipakai"]);
+                    }
+                    foreach ($serials as $number) {
+                        $serial = $this->unitIn($number, $source, 'lines', $item);
+                        $this->ensureNotRequested($serial, 'lines');
+                        $this->move(StockMovementType::PAKAI, $item, 1, $source, null, $actor, $movementNote, serial: $serial, usage: $usage);
+                        $serial->update(['warehouse_id' => null, 'material_usage_id' => $usage->id]);
+                        $usage->lines()->create([
+                            'item_id' => $item->id, 'item_name' => $item->name, 'warehouse_id' => $source->id,
+                            'serial_unit_id' => $serial->id, 'serial_number' => $serial->serial_number, 'mac' => $serial->mac,
+                            'quantity' => 1, 'notes' => $notes,
+                        ]);
+                    }
+
+                    continue;
+                }
+
+                $quantity = (int) ($line['quantity'] ?? 0);
+                if ($quantity < 1) {
+                    throw ValidationException::withMessages(['lines' => "Jumlah {$item->code} minimal 1"]);
+                }
+                // Stock a pending resume already claims is not free to use again.
+                $this->ensureAvailable($source, $item, $quantity, 'lines');
+                $this->move(StockMovementType::PAKAI, $item, $quantity, $source, null, $actor, $movementNote, usage: $usage);
+                $usage->lines()->create([
+                    'item_id' => $item->id, 'item_name' => $item->name, 'warehouse_id' => $source->id,
+                    'quantity' => $quantity, 'notes' => $notes,
+                ]);
+            }
+
+            return $usage;
+        });
+    }
+
+    /**
+     * Undo a usage entered by mistake: the stock (and each device) goes back to the warehouse it came from,
+     * and the usage stays in the log marked cancelled. Imported history never moved stock, so it is only marked.
+     */
+    public function cancelUsage(MaterialUsage $usage, User $actor, string $reason): MaterialUsage
+    {
+        return DB::transaction(function () use ($usage, $actor, $reason) {
+            $usage = MaterialUsage::query()->lockForUpdate()->with(['lines.item', 'lines.warehouse', 'lines.serialUnit'])->findOrFail($usage->id);
+            if ($usage->isCancelled()) {
+                throw ValidationException::withMessages(['cancel_reason' => 'Pemakaian ini sudah dibatalkan']);
+            }
+            if ($usage->material_request_id) {
+                throw ValidationException::withMessages(['cancel_reason' => 'Material dari tiket sudah di-ACC Gudang; koreksi lewat retur ke gudang']);
+            }
+            if (! $usage->isImported()) {
+                foreach ($usage->lines as $line) {
+                    if (! $line->item || ! $line->warehouse) {
+                        continue;
+                    }
+                    $this->move(StockMovementType::KOREKSI, $line->item, $line->quantity, null, $line->warehouse, $actor, "Batal pemakaian: {$reason}", serial: $line->serialUnit, usage: $usage);
+                    $line->serialUnit?->update(['warehouse_id' => $line->warehouse_id, 'material_usage_id' => null]);
+                }
+            }
+            $usage->update(['cancelled_at' => now(), 'cancelled_by' => $actor->id, 'cancel_reason' => mb_substr($reason, 0, 255)]);
+
+            return $usage;
+        });
+    }
+
+    /**
+     * Mark a sale paid (or back to unpaid when it was ticked by mistake).
+     */
+    public function setPayment(Sale $sale, PaymentStatus $status, User $actor, ?string $notes = null): Sale
+    {
+        $notes = trim((string) $notes) ?: null;
+        $sale->update([
+            'payment_status' => $status,
+            'paid_at' => $status === PaymentStatus::LUNAS ? now() : null,
+            'paid_by' => $status === PaymentStatus::LUNAS ? $actor->id : null,
+            'payment_notes' => $notes ? mb_substr($notes, 0, 255) : $sale->payment_notes,
+        ]);
+
+        return $sale;
     }
 
     /**
@@ -399,7 +623,7 @@ class InventoryService
         }
     }
 
-    private function move(StockMovementType $type, Item $item, int $quantity, ?Warehouse $from, ?Warehouse $to, User $actor, ?string $notes, ?Ticket $ticket = null, ?SerialUnit $serial = null): StockMovement
+    private function move(StockMovementType $type, Item $item, int $quantity, ?Warehouse $from, ?Warehouse $to, User $actor, ?string $notes, ?Ticket $ticket = null, ?SerialUnit $serial = null, ?Sale $sale = null, ?MaterialUsage $usage = null): StockMovement
     {
         if ($from) {
             $stock = $this->stock($from, $item);
@@ -422,6 +646,8 @@ class InventoryService
             'from_warehouse_id' => $from?->id,
             'to_warehouse_id' => $to?->id,
             'ticket_id' => $ticket?->id,
+            'sale_id' => $sale?->id,
+            'material_usage_id' => $usage?->id,
             'user_id' => $actor->id,
             'notes' => $notes ? mb_substr($notes, 0, 255) : null,
         ]);

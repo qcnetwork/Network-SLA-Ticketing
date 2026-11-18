@@ -21,7 +21,10 @@
                     </div>
                     <p class="text-xs text-slate-500">
                         <span class="font-medium text-slate-600">{{ $movement->type->label() }}</span> ·
-                        {{ $movement->fromWarehouse?->name ?? 'Pemasok' }} → {{ $movement->toWarehouse?->name ?? ($movement->ticket ? 'Pelanggan' : '-') }}
+                        {{ $movement->fromWarehouse?->name ?? 'Pemasok' }} → {{ $movement->toWarehouse?->name ?? ($movement->ticket ? 'Pelanggan' : ($movement->sale?->buyer_name ?? '-')) }}
+                        @if ($movement->sale)
+                            · <a href="{{ route('sales.show', $movement->sale) }}" class="font-mono text-indigo-700 hover:underline">{{ $movement->sale->sale_number }}</a>
+                        @endif
                         @if ($movement->ticket)
                             · <a href="{{ route('tickets.show', $movement->ticket) }}" class="font-mono text-indigo-700 hover:underline">{{ $movement->ticket->ticket_number }}</a>
                         @endif

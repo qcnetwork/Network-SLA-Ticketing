@@ -4,11 +4,17 @@
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white shadow-sm"><i data-lucide="warehouse" class="h-6 w-6"></i></span>
             <div>
                 <h1 class="text-2xl font-bold text-slate-900">Gudang</h1>
-                <p class="text-sm text-slate-500">Stok kantor di Gudang Utama, dikirim ke gudang teknisi, lalu berkurang saat material Resume Perbaikan di-ACC.</p>
+                <p class="text-sm text-slate-500">Stok kantor di Gudang Utama, dikirim ke gudang teknisi (berkurang saat material Resume Perbaikan di-ACC) atau dijual ke mitra.</p>
             </div>
         </div>
         @if ($canManage)
-            <a href="{{ route('items.index') }}" class="btn-secondary shrink-0"><i data-lucide="boxes" class="h-4 w-4"></i>Master Barang &amp; Kategori</a>
+            <div class="flex shrink-0 flex-wrap gap-2">
+                <a href="{{ route('usages.index') }}" class="btn-secondary"><i data-lucide="clipboard-list" class="h-4 w-4"></i>Pemakaian Alat</a>
+                <a href="{{ route('sales.create') }}" class="btn-primary"><i data-lucide="shopping-cart" class="h-4 w-4"></i>Jual Barang</a>
+                <a href="{{ route('sales.index') }}" class="btn-secondary"><i data-lucide="receipt" class="h-4 w-4"></i>Log Penjualan</a>
+                <a href="{{ route('partners.index') }}" class="btn-secondary"><i data-lucide="handshake" class="h-4 w-4"></i>Mitra</a>
+                <a href="{{ route('items.index') }}" class="btn-secondary"><i data-lucide="boxes" class="h-4 w-4"></i>Master Barang</a>
+            </div>
         @endif
     </div>
 

@@ -125,6 +125,11 @@ class WarehouseController extends Controller
      */
     public function lookupSerial(Request $request): JsonResponse
     {
+        // Outside the warehouse team, a scan is only checked against one's own stock.
+        if (! $request->user()->canAccess(Menu::WAREHOUSE_MANAGE)) {
+            $own = Warehouse::query()->where('user_id', $request->user()->id)->value('id');
+            abort_unless($own && (int) $request->query('warehouse') === $own && ! $request->boolean('new'), 403);
+        }
         $number = SerialUnit::normalizeSerial($request->query('sn'));
         $serial = SerialUnit::query()->with(['item', 'warehouse', 'ticket'])->where('serial_number', $number)->first();
 
@@ -226,7 +231,7 @@ class WarehouseController extends Controller
                 ->paginate(50, pageName: 'stok')->withQueryString(),
             'units' => $warehouse->serialUnits()->with('item')->orderBy('item_id')->orderBy('serial_number')->get()->groupBy('item_id'),
             'movements' => StockMovement::query()
-                ->with(['item', 'serialUnit', 'fromWarehouse', 'toWarehouse', 'ticket', 'user'])
+                ->with(['item', 'serialUnit', 'fromWarehouse', 'toWarehouse', 'ticket', 'sale', 'user'])
                 ->where(fn ($q) => $q->where('from_warehouse_id', $warehouse->id)->orWhere('to_warehouse_id', $warehouse->id))
                 ->latest('id')->limit(30)->get(),
         ];
@@ -269,7 +274,7 @@ class WarehouseController extends Controller
             return collect();
         }
 
-        return SerialUnit::query()->with(['item', 'warehouse', 'ticket'])
+        return SerialUnit::query()->with(['item', 'warehouse', 'ticket', 'sale'])
             ->where(fn ($q) => $q->where('serial_number', 'like', "%{$search}%")->orWhere('mac', 'like', '%'.str_replace([':', '-'], '', $search).'%'))
             ->limit(20)->get();
     }

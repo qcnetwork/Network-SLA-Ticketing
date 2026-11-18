@@ -8,9 +8,11 @@ import notificationBell from './notification-bell';
 import optionSearch from './option-search';
 import photoInput from './photo-input';
 import repairMaterials from './repair-materials';
+import saleForm from './sale-form';
 import serialScanner from './serial-scanner';
 import stockForm from './stock-form';
 import topScrollbar from './top-scrollbar';
+import usageForm from './usage-form';
 
 window.Alpine = Alpine;
 Alpine.data('customerPicker', customerPicker);
@@ -20,9 +22,11 @@ Alpine.data('notificationBell', notificationBell);
 Alpine.data('optionSearch', optionSearch);
 Alpine.data('photoInput', photoInput);
 Alpine.data('repairMaterials', repairMaterials);
+Alpine.data('saleForm', saleForm);
 Alpine.data('serialScanner', serialScanner);
 Alpine.data('stockForm', stockForm);
 Alpine.data('topScrollbar', topScrollbar);
+Alpine.data('usageForm', usageForm);
 Alpine.start();
 
 const renderIcons = () => createIcons({ icons });

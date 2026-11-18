@@ -9,11 +9,14 @@ use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\InstallationController;
 use App\Http\Controllers\ItemCategoryController;
 use App\Http\Controllers\ItemController;
+use App\Http\Controllers\MaterialUsageController;
 use App\Http\Controllers\MenuAccessController;
 use App\Http\Controllers\ModemTypeController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\PartnerController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\SaleController;
 use App\Http\Controllers\ServicePackageController;
 use App\Http\Controllers\SettingController;
 use App\Http\Controllers\TicketCategoryController;
@@ -87,13 +90,31 @@ Route::middleware('auth')->group(function () {
         Route::post('/gudang/masuk-sn', [WarehouseController::class, 'receiveSerials'])->name('warehouses.receive-serials');
         Route::post('/gudang/kirim-sn', [WarehouseController::class, 'sendSerials'])->name('warehouses.send-serials');
         Route::post('/gudang/{warehouse}/retur-sn', [WarehouseController::class, 'returnSerials'])->name('warehouses.return-serials');
-        Route::get('/gudang/cek-sn', [WarehouseController::class, 'lookupSerial'])->name('warehouses.lookup-serial');
         Route::post('/gudang/pengajuan/{materialRequest}/setujui', [WarehouseController::class, 'approveRequest'])->name('material-requests.approve');
         Route::post('/gudang/pengajuan/{materialRequest}/tolak', [WarehouseController::class, 'rejectRequest'])->name('material-requests.reject');
+        // Selling equipment to partners (mitra) and other buyers.
+        Route::get('/gudang/penjualan', [SaleController::class, 'index'])->name('sales.index');
+        Route::get('/gudang/penjualan/baru', [SaleController::class, 'create'])->name('sales.create');
+        Route::get('/gudang/penjualan/export', [SaleController::class, 'export'])->name('sales.export');
+        Route::post('/gudang/penjualan', [SaleController::class, 'store'])->name('sales.store');
+        Route::get('/gudang/penjualan/{sale}', [SaleController::class, 'show'])->name('sales.show');
+        Route::patch('/gudang/penjualan/{sale}/pembayaran', [SaleController::class, 'payment'])->name('sales.payment');
+        Route::get('/gudang/mitra', [PartnerController::class, 'index'])->name('partners.index');
+        Route::post('/gudang/mitra', [PartnerController::class, 'store'])->name('partners.store');
+        Route::put('/gudang/mitra/{partner}', [PartnerController::class, 'update'])->name('partners.update');
+        Route::post('/gudang/pemakaian/{usage}/batal', [MaterialUsageController::class, 'cancel'])->whereNumber('usage')->name('usages.cancel');
     });
     Route::middleware('menu:warehouse')->group(function () {
         Route::get('/gudang', [WarehouseController::class, 'index'])->name('warehouses.index');
         Route::get('/gudang/{warehouse}', [WarehouseController::class, 'show'])->whereNumber('warehouse')->name('warehouses.show');
+        // Technicians check scans against their own stock; see lookupSerial.
+        Route::get('/gudang/cek-sn', [WarehouseController::class, 'lookupSerial'])->name('warehouses.lookup-serial');
+        // Pemakaian Alat: the warehouse records any job, a technician the jobs from their own stock.
+        Route::get('/gudang/pemakaian', [MaterialUsageController::class, 'index'])->name('usages.index');
+        Route::get('/gudang/pemakaian/baru', [MaterialUsageController::class, 'create'])->name('usages.create');
+        Route::get('/gudang/pemakaian/export', [MaterialUsageController::class, 'export'])->name('usages.export');
+        Route::post('/gudang/pemakaian', [MaterialUsageController::class, 'store'])->name('usages.store');
+        Route::get('/gudang/pemakaian/{usage}', [MaterialUsageController::class, 'show'])->whereNumber('usage')->name('usages.show');
     });
 
     Route::get('/gamas', [IncidentController::class, 'index'])->name('incidents.index');

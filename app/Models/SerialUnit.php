@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * One modem (or other SN-tracked unit). It sits in a warehouse until a repair resume installs it
- * at a customer, which moves it onto that ticket.
+ * at a customer, which moves it onto that ticket, or until it is sold.
  */
 class SerialUnit extends Model
 {
@@ -31,6 +31,16 @@ class SerialUnit extends Model
     public function ticket(): BelongsTo
     {
         return $this->belongsTo(Ticket::class);
+    }
+
+    public function usage(): BelongsTo
+    {
+        return $this->belongsTo(MaterialUsage::class, 'material_usage_id');
+    }
+
+    public function sale(): BelongsTo
+    {
+        return $this->belongsTo(Sale::class);
     }
 
     /**
@@ -61,6 +71,8 @@ class SerialUnit extends Model
         return $this->warehouse?->name
             ?? match (true) {
                 $this->ticket !== null => "Terpasang · {$this->ticket->ticket_number}",
+                $this->usage !== null => "Terpakai · {$this->usage->location}",
+                $this->sale !== null => "Terjual · {$this->sale->buyer_name} ({$this->sale->sale_number})",
                 $this->condition !== null => "Keluar stok · {$this->condition}",
                 $this->installed_to !== null => "Terpasang · {$this->installed_to}",
                 default => '-',

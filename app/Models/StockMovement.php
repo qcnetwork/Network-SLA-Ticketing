@@ -40,6 +40,16 @@ class StockMovement extends Model
         return $this->belongsTo(Ticket::class);
     }
 
+    public function usage(): BelongsTo
+    {
+        return $this->belongsTo(MaterialUsage::class, 'material_usage_id');
+    }
+
+    public function sale(): BelongsTo
+    {
+        return $this->belongsTo(Sale::class);
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

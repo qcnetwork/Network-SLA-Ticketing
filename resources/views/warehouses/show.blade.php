@@ -5,12 +5,20 @@
         </a>
     @endunless
     @php($holder = $warehouse->user?->name ?? 'Teknisi')
-    <div class="mb-6 flex items-center gap-3">
+    <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex items-center gap-3">
         <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-slate-800 text-sm font-bold text-white shadow-sm">{{ Str::upper(Str::substr($holder, 0, 2)) }}</span>
         <div>
             <h1 class="text-2xl font-bold text-slate-900">{{ $warehouse->name }}</h1>
-            <p class="text-sm text-slate-500">Stok yang dibawa {{ $holder }}. Berkurang saat material di Resume Perbaikan di-ACC Gudang.</p>
+            <p class="text-sm text-slate-500">Stok yang dibawa {{ $holder }}. Berkurang saat material di Resume Perbaikan di-ACC Gudang atau dicatat di Pemakaian Alat.</p>
         </div>
+    </div>
+    <div class="flex shrink-0 flex-wrap gap-2">
+        <a href="{{ route('usages.index', $canManage ? ['stok' => $warehouse->id] : []) }}" class="btn-secondary"><i data-lucide="clipboard-list" class="h-4 w-4"></i>Riwayat Pemakaian</a>
+        @if (auth()->user()->role === App\Enums\Role::TEKNISI)
+            <a href="{{ route('usages.create') }}" class="btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Catat Pemakaian</a>
+        @endif
+    </div>
     </div>
 
     @include('warehouses.partials.summary', ['tiles' => [

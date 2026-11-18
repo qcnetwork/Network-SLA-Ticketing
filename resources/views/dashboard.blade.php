@@ -16,7 +16,7 @@
                 $seesInstallations ? ['label' => 'PSB Berjalan', 'value' => $stats['installationsOpen'], 'icon' => 'house-plus', 'accent' => 'border-t-indigo-500', 'url' => route('installations.index'),
                     'note' => $stats['installationsActiveThisMonth'].' pelanggan baru aktif bulan ini'] : null,
             ]));
-        $waiting = $attention->sum('count');
+        $waiting = $attention->sum('count') + $pendingMaterial + $unpaidSales;
     @endphp
 
     {{-- dashboardLive keeps the notification log and the [data-live] blocks current without a reload. --}}
@@ -93,11 +93,11 @@
                                 @endforelse
                             </ul>
                         </div>
-                    @elseif ($attention->isNotEmpty() || $pendingMaterial)
+                    @elseif ($attention->isNotEmpty() || $pendingMaterial || $unpaidSales)
                         <div class="card">
                             <div class="flex items-center justify-between gap-2 border-b border-slate-100 px-5 py-3">
                                 <h2 class="flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="bell-ring" class="h-4 w-4 text-indigo-600"></i>Perlu Ditangani</h2>
-                                <span @class(['rounded-full px-2 text-xs font-semibold', 'bg-rose-100 text-rose-700' => $waiting + $pendingMaterial, 'bg-slate-100 text-slate-500' => ! ($waiting + $pendingMaterial)])>{{ $waiting + $pendingMaterial }}</span>
+                                <span @class(['rounded-full px-2 text-xs font-semibold', 'bg-rose-100 text-rose-700' => $waiting, 'bg-slate-100 text-slate-500' => ! $waiting])>{{ $waiting }}</span>
                             </div>
                             <ul class="grid sm:grid-cols-2">
                                 @foreach ($attention as $item)
@@ -121,6 +121,18 @@
                                                 <span class="block text-xs text-slate-500">Gudang</span>
                                             </span>
                                             <span class="text-lg font-bold text-slate-900">{{ $pendingMaterial }}</span>
+                                        </a>
+                                    </li>
+                                @endif
+                                @if ($unpaidSales)
+                                    <li class="border-b border-slate-100 sm:odd:border-r">
+                                        <a href="{{ route('sales.index', ['status' => 'BELUM_LUNAS']) }}" class="flex items-center gap-3 px-5 py-3 transition hover:bg-slate-50">
+                                            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-sky-300 bg-sky-100 text-sky-800"><i data-lucide="receipt" class="h-4 w-4"></i></span>
+                                            <span class="min-w-0 flex-1">
+                                                <span class="block text-sm font-medium text-slate-800">Penjualan belum lunas</span>
+                                                <span class="block text-xs text-slate-500">Gudang</span>
+                                            </span>
+                                            <span class="text-lg font-bold text-slate-900">{{ $unpaidSales }}</span>
                                         </a>
                                     </li>
                                 @endif
