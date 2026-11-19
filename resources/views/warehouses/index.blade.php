@@ -58,20 +58,19 @@
                 </section>
             @endif
             @include('warehouses.partials.material-requests')
-            @include('warehouses.partials.stock-table', ['title' => $main->name, 'showLow' => true])
-            @include('warehouses.partials.movements')
+            @include('warehouses.partials.stock-tabs', ['title' => $main->name, 'showLow' => true])
         </div>
 
         <aside class="order-first space-y-6 lg:order-none">
             @if ($canManage)
                 {{-- One panel for everything that moves stock out of or into the main warehouse. --}}
-                <section x-data="{ tab: @js(str_starts_with((string) old('_tab'), 'kirim') ? 'kirim' : 'masuk'), send: @js(old('_tab') === 'kirim-jumlah' ? 'jumlah' : 'sn') }" class="card overflow-hidden">
+                <section x-data="{ tab: @js(str_starts_with((string) old('_tab'), 'kirim') ? 'kirim' : 'masuk'), send: @js(old('_tab') === 'kirim-jumlah' ? 'jumlah' : 'sn') }" class="card">
                     <div class="grid grid-cols-2 border-b border-slate-200 text-sm font-semibold">
-                        <button type="button" @click="tab = 'masuk'" :class="tab === 'masuk' ? 'border-emerald-600 text-emerald-700 bg-emerald-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'" class="flex items-center justify-center gap-2 border-b-2 px-4 py-3">
+                        <button type="button" @click="tab = 'masuk'" :class="tab === 'masuk' ? 'border-emerald-600 text-emerald-700 bg-emerald-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'" class="flex items-center justify-center gap-2 rounded-tl-xl border-b-2 px-4 py-3">
                             <i data-lucide="download" class="h-4 w-4"></i>Barang Masuk
                         </button>
-                        <button type="button" @click="tab = 'kirim'" :class="tab === 'kirim' ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'" class="flex items-center justify-center gap-2 border-b-2 px-4 py-3">
-                            <i data-lucide="truck" class="h-4 w-4"></i>Kirim ke Teknisi
+                        <button type="button" @click="tab = 'kirim'" :class="tab === 'kirim' ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'" class="flex items-center justify-center gap-2 rounded-tr-xl border-b-2 px-4 py-3">
+                            <i data-lucide="truck" class="h-4 w-4"></i>Kirim ke Teknisi / HD
                         </button>
                     </div>
 
@@ -98,7 +97,7 @@
                                 <label class="label">2. Scan SN tiap unit</label>
                                 <div class="flex gap-2 rounded-lg border border-violet-200 bg-violet-50 p-2.5 text-xs text-violet-800">
                                     <i data-lucide="scan-barcode" class="mt-0.5 h-4 w-4 shrink-0"></i>
-                                    <span>Kategori <b x-text="item?.category"></b> wajib SN. Setiap unit yang datang harus discan, dan SN yang sudah terdaftar akan ditolak.</span>
+                                    <span>Kategori <b x-text="item?.category"></b> dicatat per unit lewat SN, bukan jumlah. Scan banyak unit sekaligus di bawah; SN yang sudah ada di sistem ditolak supaya tidak tercatat dobel.</span>
                                 </div>
                                 <x-serial-scan :query="['new' => 1]" with-mac mac-toggle />
                             </div>
@@ -170,7 +169,7 @@
             @if ($lowStock->isNotEmpty())
                 <section class="card border-rose-200 p-5">
                     <h3 class="mb-3 flex items-center gap-2 font-semibold text-rose-700"><i data-lucide="circle-alert" class="h-4 w-4"></i>Stok Menipis ({{ $lowStock->count() }})</h3>
-                    <ul class="divide-y divide-slate-100 text-sm">
+                    <ul class="-mx-1 max-h-64 divide-y divide-slate-100 overflow-y-auto px-1 text-sm">
                         @foreach ($lowStock as $item)
                             <li class="flex items-center justify-between gap-2 py-2">
                                 <span class="min-w-0">
@@ -187,25 +186,41 @@
                 </section>
             @endif
 
-            <section class="card p-5">
-                <h3 class="mb-3 flex items-center gap-2 font-semibold"><i data-lucide="users" class="h-4 w-4"></i>Gudang Teknisi</h3>
-                <ul class="space-y-2 text-sm">
+            {{-- Technicians holding the most come first; empty warehouses hide unless asked for. --}}
+            @php($emptyWarehouses = $technicianWarehouses->filter(fn ($warehouse) => (int) $warehouse->stocks_sum_quantity === 0)->count())
+            <section class="card p-5" x-data="{ find: '', showEmpty: false }">
+                <div class="mb-3 flex items-center justify-between gap-2">
+                    <h3 class="flex items-center gap-2 font-semibold"><i data-lucide="users" class="h-4 w-4"></i>Gudang Teknisi &amp; Helpdesk</h3>
+                    <span class="text-xs text-slate-500">{{ $technicianWarehouses->count() - $emptyWarehouses }} memegang stok</span>
+                </div>
+                @if ($technicianWarehouses->count() > 6)
+                    <div class="relative mb-2">
+                        <i data-lucide="search" class="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-slate-400"></i>
+                        <input x-model="find" type="search" class="input pl-9 text-sm" placeholder="Cari teknisi / helpdesk">
+                    </div>
+                @endif
+                <ul class="-mx-1 max-h-96 space-y-1 overflow-y-auto px-1 text-sm">
                     @forelse ($technicianWarehouses as $warehouse)
                         @php($holder = $warehouse->user?->name ?? $warehouse->name)
-                        <li>
-                            <a href="{{ route('warehouses.show', $warehouse) }}" class="flex items-center gap-3 rounded-lg border border-slate-200 p-3 transition hover:border-indigo-300 hover:bg-indigo-50/40">
-                                <span class="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{{ Str::upper(Str::substr($holder, 0, 2)) }}</span>
+                        @php($empty = (int) $warehouse->stocks_sum_quantity === 0)
+                        <li x-show="@js(Str::upper($holder)).includes(find.toUpperCase()) && (@js(! $empty) || showEmpty || find !== '')">
+                            <a href="{{ route('warehouses.show', $warehouse) }}" class="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-indigo-50/60">
+                                <span class="grid h-8 w-8 shrink-0 place-items-center rounded-full {{ $empty ? 'bg-slate-100 text-slate-400' : 'bg-indigo-100 text-indigo-700' }} text-xs font-bold">{{ Str::upper(Str::substr($holder, 0, 2)) }}</span>
                                 <span class="min-w-0 flex-1">
-                                    <span class="block truncate font-medium text-slate-800">{{ $holder }}</span>
-                                    <span class="text-xs text-slate-500">{{ $warehouse->stocks_count }} jenis · {{ (int) $warehouse->stocks_sum_quantity }} unit · {{ $warehouse->serial_units_count }} SN</span>
+                                    <span class="block truncate font-medium {{ $empty ? 'text-slate-500' : 'text-slate-800' }}">{{ $holder }}</span>
+                                    <span class="text-xs text-slate-500">{{ $warehouse->stocks_count }} jenis · {{ $warehouse->serial_units_count }} SN</span>
                                 </span>
-                                <i data-lucide="chevron-right" class="h-4 w-4 text-slate-400"></i>
+                                <span class="shrink-0 text-right text-sm font-bold {{ $empty ? 'text-slate-300' : 'text-slate-800' }}">{{ number_format((int) $warehouse->stocks_sum_quantity, 0, ',', '.') }}</span>
                             </a>
                         </li>
                     @empty
-                        <li class="py-4 text-center text-slate-400">Belum ada teknisi yang memegang stok</li>
+                        <li class="py-4 text-center text-slate-400">Belum ada teknisi atau helpdesk yang memegang stok</li>
                     @endforelse
                 </ul>
+                @if ($emptyWarehouses > 0)
+                    <button type="button" @click="showEmpty = ! showEmpty" class="mt-2 w-full text-center text-xs font-medium text-indigo-700 hover:underline"
+                        x-text="showEmpty ? 'Sembunyikan gudang kosong' : 'Tampilkan {{ $emptyWarehouses }} gudang kosong'"></button>
+                @endif
             </section>
         </aside>
     </div>

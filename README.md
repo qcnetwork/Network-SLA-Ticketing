@@ -99,6 +99,12 @@ Masuk sebagai SPV, buka **Pengaturan**, lalu isi Bot Token dan Group Chat ID. Se
 
 Pesan dikirim setelah halaman selesai dimuat, jadi request pengguna tidak ikut lambat dan tidak perlu menjalankan queue worker.
 
+## Google Spreadsheet Gudang
+
+Setiap mutasi stok (masuk, kirim, retur, pakai, jual, koreksi) ikut ditulis ke Google Spreadsheet: tab **Mutasi** berisi log, tab **Stok** berisi stok terkini per gudang. Pemasangan cukup sekali: ikuti langkah di bagian atas `docs/google-sheets-gudang.gs`, lalu isi URL Web App di **Pengaturan → Google Spreadsheet Gudang**.
+
+Data dikirim setelah halaman selesai dimuat. Yang gagal terkirim (internet putus, Google sibuk) dikirim ulang oleh scheduler tiap 5 menit, jadi pastikan `php artisan schedule:run` berjalan tiap menit (Task Scheduler di Windows). Kirim manual: `php artisan inventory:sync-sheet` (tambah `--full` untuk menulis ulang tab Stok).
+
 ## API Data Pelanggan
 
 Aplikasi lain bisa **membaca** data pelanggan (tidak bisa mengubah). Isi token di `.env`, satu token per aplikasi

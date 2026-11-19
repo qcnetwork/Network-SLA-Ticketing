@@ -179,7 +179,7 @@ class TicketController extends Controller
      */
     private function technicianStock(Ticket $ticket): array
     {
-        $technicianWarehouse = fn ($q) => $q->whereHas('user', fn ($user) => $user->where('role', Role::TEKNISI));
+        $technicianWarehouse = fn ($q) => $q->whereHas('user', fn ($user) => $user->whereIn('role', Role::stockHolders()));
         $claimed = MaterialRequestLine::query()->pending()->whereHas('warehouse', $technicianWarehouse)->get()
             ->groupBy(fn (MaterialRequestLine $line) => "{$line->warehouse_id}:{$line->item_id}")->map->sum('quantity');
 
@@ -191,7 +191,9 @@ class TicketController extends Controller
         $holders = $ticket->technicians
             ->concat($stock->map(fn ($stocks) => $stocks->first()->warehouse->user)->sortBy('name'))
             ->unique('id')->filter(fn (User $technician) => $stock->has($technician->id))
-            ->map(fn (User $technician) => ['id' => $technician->id, 'name' => $technician->name.($ticket->isAssignedTo($technician) ? ' · ditugaskan' : '')])
+            ->map(fn (User $technician) => ['id' => $technician->id, 'name' => $technician->name
+                .($technician->role === Role::HELPDESK ? ' · Helpdesk' : '')
+                .($ticket->isAssignedTo($technician) ? ' · ditugaskan' : '')])
             ->values()->all();
 
         return ['stockHolders' => $holders, 'crewStock' => $stock
@@ -216,7 +218,7 @@ class TicketController extends Controller
                 || $user->can('resubmitMaterial', $ticket),
             403,
         );
-        $technician = User::query()->where('role', Role::TEKNISI)->findOrFail((int) $request->query('technician'));
+        $technician = User::query()->whereIn('role', Role::stockHolders())->findOrFail((int) $request->query('technician'));
         $warehouse = Warehouse::query()->where('user_id', $technician->id)->first();
         if (! $warehouse) {
             return response()->json((object) []);

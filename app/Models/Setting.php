@@ -30,6 +30,9 @@ class Setting extends Model
         'notify_on_new_ticket' => '1',
         'notify_on_status_change' => '1',
         'cs_phone' => '6281234567890',
+        // Google Sheet mirror of the warehouse: the Apps Script web app URL and the secret it checks.
+        'sheets_url' => '',
+        'sheets_secret' => '',
     ];
 
     /**

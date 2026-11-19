@@ -45,8 +45,8 @@ class WarehouseController extends Controller
             ...$this->stockPage($request, $main),
             'technicianWarehouses' => Warehouse::query()->technicians()->with('user')
                 ->withSum('stocks', 'quantity')->withCount(['stocks' => fn (Builder $q) => $q->where('quantity', '>', 0), 'serialUnits'])
-                ->orderBy('name')->get(),
-            'technicians' => User::technicians()->get(),
+                ->orderByDesc('stocks_sum_quantity')->orderBy('name')->get(),
+            'technicians' => User::stockHolders()->get(),
             // Every active item with what the main warehouse holds, for the receive and send forms.
             'catalog' => $this->catalog(Item::query()->where('active', true)->addSelect(['held' => $this->heldIn($main)])->get()),
             'lowStock' => Item::query()->where('active', true)->where('min_stock', '>', 0)->with('category')
@@ -103,7 +103,7 @@ class WarehouseController extends Controller
     public function sendSerials(Request $request): RedirectResponse
     {
         $data = $this->validateSerials($request, [
-            'technician_id' => ['required', Rule::exists('users', 'id')->where('role', Role::TEKNISI->value)->where('active', true)],
+            'technician_id' => ['required', Rule::exists('users', 'id')->whereIn('role', array_map(fn (Role $role) => $role->value, Role::stockHolders()))->where('active', true)],
         ]);
         $technician = User::query()->findOrFail($data['technician_id']);
         $count = $this->inventory->sendSerials(array_column($data['serials'], 'sn'), $technician, $request->user(), $data['notes'] ?? null);
@@ -180,7 +180,7 @@ class WarehouseController extends Controller
     public function send(Request $request): RedirectResponse
     {
         $data = $this->validateMovement($request, [
-            'technician_id' => ['required', Rule::exists('users', 'id')->where('role', Role::TEKNISI->value)->where('active', true)],
+            'technician_id' => ['required', Rule::exists('users', 'id')->whereIn('role', array_map(fn (Role $role) => $role->value, Role::stockHolders()))->where('active', true)],
         ]);
         $item = $this->inventory->findItem($data['item'], 'item');
         $technician = User::query()->findOrFail($data['technician_id']);
@@ -228,7 +228,7 @@ class WarehouseController extends Controller
                 ->when($category === 'none', fn ($q) => $q->whereNull('items.item_category_id'))
                 ->when(ctype_digit($category), fn ($q) => $q->where('items.item_category_id', (int) $category))
                 ->orderBy('items.code')->select('stocks.*')
-                ->paginate(50, pageName: 'stok')->withQueryString(),
+                ->paginate(20, pageName: 'stok')->withQueryString(),
             'units' => $warehouse->serialUnits()->with('item')->orderBy('item_id')->orderBy('serial_number')->get()->groupBy('item_id'),
             'movements' => StockMovement::query()
                 ->with(['item', 'serialUnit', 'fromWarehouse', 'toWarehouse', 'ticket', 'sale', 'user'])

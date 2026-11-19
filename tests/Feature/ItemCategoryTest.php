@@ -164,9 +164,39 @@ class ItemCategoryTest extends TestCase
     {
         $this->assertSame('Modem / ONT', ItemCategory::guessName('MDM031', 'FIBERHOME HG6145D2'));
         $this->assertSame('Router & Mikrotik', ItemCategory::guessName('RTR001', 'MIKROTIK RB951'));
+        $this->assertSame('Kabel', ItemCategory::guessName('KBL001', 'KABEL SFP'), 'a cable, not an SFP module');
+        $this->assertSame('OLT & SFP', ItemCategory::guessName('SFP001', 'SFP 1,25G 20KM NUFIBER'));
         $this->assertSame('Fiber Optik & Pasif', ItemCategory::guessName('ADS001', 'ADAPTER SC/UPC'));
         $this->assertSame('Kelistrikan', ItemCategory::guessName('ADP001', 'ADAPTOR 12 V 1 A'));
         $this->assertSame('Aksesoris & Habis Pakai', ItemCategory::guessName('CTI001', 'CABLE TIE 20 CM'));
         $this->assertNull(ItemCategory::guessName('XYZ001', 'FRONT PANEL'));
+    }
+
+    public function test_an_unused_item_can_be_deleted(): void
+    {
+        $item = Item::query()->create(['code' => 'TYPO01', 'name' => 'SALAH INPUT']);
+
+        $this->actingAs($this->warehouse)->delete("/gudang/barang/{$item->id}")->assertSessionHasNoErrors();
+
+        $this->assertModelMissing($item);
+    }
+
+    public function test_an_item_with_stock_or_history_cannot_be_deleted(): void
+    {
+        $stocked = Item::query()->create(['code' => 'KBL009', 'name' => 'DROPCORE']);
+        $this->stockOf($stocked, 5);
+
+        $this->actingAs($this->warehouse)->delete("/gudang/barang/{$stocked->id}")->assertSessionHasErrors('item');
+
+        $this->assertModelExists($stocked);
+    }
+
+    public function test_a_technician_cannot_delete_items(): void
+    {
+        $item = Item::query()->create(['code' => 'TYPO02', 'name' => 'SALAH INPUT']);
+
+        $this->actingAs($this->userWithRole(Role::TEKNISI))->delete("/gudang/barang/{$item->id}")->assertForbidden();
+
+        $this->assertModelExists($item);
     }
 }

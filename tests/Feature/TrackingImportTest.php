@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Models\Item;
+use App\Models\Partner;
 use App\Models\SerialUnit;
 use App\Models\Stock;
 use App\Models\User;
@@ -50,8 +51,17 @@ class TrackingImportTest extends TestCase
                 [2, 46100, '', 'HSAIRPO XPW300', 'ZICG1748B93E', '987DDD48B93E', '', '', '', '', '', ''],
             ],
         ];
-        $this->path = tempnam(sys_get_temp_dir(), 'tracking').'.xlsx';
-        file_put_contents($this->path, Excel::raw(new class($sheets) implements Export, WithMultipleSheets
+        $this->path = $this->workbook($sheets);
+
+        Item::query()->create(['code' => 'MDM024', 'name' => 'MODEM ML212X MYLINK']);
+        Item::query()->create(['code' => 'MDM030', 'name' => 'MODEM XPON ONU ZIMMLINK MEGADATA', 'tracks_serial' => true]);
+    }
+
+    /** @param  array<string, array<int, array<int, mixed>>>  $sheets */
+    private function workbook(array $sheets): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'tracking').'.xlsx';
+        file_put_contents($path, Excel::raw(new class($sheets) implements Export, WithMultipleSheets
         {
             public function __construct(private array $sheets) {}
 
@@ -74,8 +84,7 @@ class TrackingImportTest extends TestCase
             }
         }, ExcelFormat::XLSX));
 
-        Item::query()->create(['code' => 'MDM024', 'name' => 'MODEM ML212X MYLINK']);
-        Item::query()->create(['code' => 'MDM030', 'name' => 'MODEM XPON ONU ZIMMLINK MEGADATA', 'tracks_serial' => true]);
+        return $path;
     }
 
     protected function tearDown(): void
@@ -137,6 +146,31 @@ class TrackingImportTest extends TestCase
         $this->assertSame([], $again['items']);
         $this->assertSame([], $again['technicians']);
         $this->assertSame(7, SerialUnit::query()->count());
+    }
+
+    public function test_units_with_a_partner_leave_the_stock_instead_of_going_to_a_technician(): void
+    {
+        $sheets = ['MODEM HSAIRPO XPW300' => [
+            self::HEADER,
+            [1, 46100, 46101, 'HSAIRPO XPW300', 'IKM0000001', '', 'PT. IKM', '', '', '', '', ''],
+            [2, 46100, 46101, 'HSAIRPO XPW300', 'IKM0000002', '', 'PT IKM', '', '', '', 'KEMBALI KE KANTOR', ''],
+            [3, 46100, 46101, 'HSAIRPO XPW300', 'DOOR000001', '', 'DOPRIZE', '', '', '', '', ''],
+            [4, 46100, 46101, 'HSAIRPO XPW300', 'NEWP000001', '', 'TIM NUSA NET', '', '', '', '', ''],
+        ]];
+        $path = $this->workbook($sheets);
+        Partner::query()->create(['name' => 'Nusa Net']);
+
+        $report = app(TrackingImport::class)->import($path);
+        @unlink($path);
+
+        $this->assertSame(['PT IKM'], $report['partners']);
+        $this->assertSame([], $report['technicians'], 'no technician account for a partner');
+        $this->assertSame('Mitra', Partner::query()->where('name', 'PT IKM')->sole()->notes);
+        $this->assertNull($this->unit('IKM0000001')->warehouse_id);
+        $this->assertSame('Keluar stok · Mitra PT IKM', $this->unit('IKM0000001')->location());
+        $this->assertSame(Warehouse::main()->id, $this->unit('IKM0000002')->warehouse_id, 'returned by the partner');
+        $this->assertSame('Keluar stok · Doorprize event', $this->unit('DOOR000001')->location());
+        $this->assertSame('Keluar stok · Mitra Nusa Net', $this->unit('NEWP000001')->location(), 'a partner added in the app');
     }
 
     public function test_a_dry_run_saves_nothing(): void

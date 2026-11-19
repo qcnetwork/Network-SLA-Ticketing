@@ -50,14 +50,13 @@
                 </section>
             @endif
             @include('warehouses.partials.material-requests')
-            @include('warehouses.partials.stock-table', ['title' => 'Stok'])
-            @include('warehouses.partials.movements')
+            @include('warehouses.partials.stock-tabs', ['title' => 'Stok'])
         </div>
 
         @if ($canManage)
             <aside class="order-first lg:order-none">
-                <section x-data="{ mode: @js(old('_tab') === 'retur-jumlah' ? 'jumlah' : 'sn') }" class="card overflow-hidden">
-                    <div class="flex items-center gap-2 border-b border-slate-200 bg-amber-50/60 px-5 py-3 font-semibold text-amber-800">
+                <section x-data="{ mode: @js(old('_tab') === 'retur-jumlah' ? 'jumlah' : 'sn') }" class="card">
+                    <div class="flex items-center gap-2 rounded-t-xl border-b border-slate-200 bg-amber-50/60 px-5 py-3 font-semibold text-amber-800">
                         <i data-lucide="undo-2" class="h-4 w-4"></i>Retur ke Gudang Utama
                     </div>
                     <div class="space-y-4 p-5">

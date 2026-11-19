@@ -80,6 +80,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/gudang/barang', [ItemController::class, 'index'])->name('items.index');
         Route::post('/gudang/barang', [ItemController::class, 'store'])->name('items.store');
         Route::put('/gudang/barang/{item}', [ItemController::class, 'update'])->name('items.update');
+        Route::delete('/gudang/barang/{item}', [ItemController::class, 'destroy'])->name('items.destroy');
         Route::post('/gudang/barang/impor', [ItemController::class, 'import'])->name('items.import');
         Route::post('/gudang/kategori', [ItemCategoryController::class, 'store'])->name('item-categories.store');
         Route::put('/gudang/kategori/{category}', [ItemCategoryController::class, 'update'])->name('item-categories.update');
@@ -147,6 +148,8 @@ Route::middleware('auth')->group(function () {
         Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
         Route::post('/settings/telegram-test', [SettingController::class, 'test'])->name('settings.test');
         Route::post('/settings/telegram-commands', [SettingController::class, 'enableCommands'])->name('settings.commands');
-        Route::post('/settings/backup', [SettingController::class, 'backup'])->middleware('throttle:5,1')->name('settings.backup');
+        Route::put('/settings/sheets', [SettingController::class, 'updateSheets'])->name('settings.sheets');
+        Route::post('/settings/sheets-sync', [SettingController::class, 'syncSheets'])->middleware('throttle:5,1')->name('settings.sheets-sync');
+        Route::post('/settings/backup',[SettingController::class, 'backup'])->middleware('throttle:5,1')->name('settings.backup');
     });
 });

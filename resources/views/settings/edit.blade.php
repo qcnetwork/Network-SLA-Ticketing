@@ -116,6 +116,47 @@
             <button class="btn-secondary shrink-0"><i data-lucide="zap" class="h-4 w-4"></i>{{ filled($settings['webhook_url']) ? 'Aktifkan Ulang' : 'Aktifkan' }}</button>
         </form>
 
+        {{-- Every stock in/out is mirrored to a Google Sheet through a small Apps Script web app. --}}
+        <section class="card space-y-4 p-6">
+            <div>
+                <h2 class="flex items-center gap-2 font-semibold"><i data-lucide="file-spreadsheet" class="h-4 w-4 text-emerald-600"></i>Google Spreadsheet Gudang</h2>
+                <p class="mt-1 text-sm text-slate-500">Setiap barang masuk, kirim, retur, pakai, jual, dan koreksi otomatis ditulis ke tab <b>Mutasi</b>, dan stok terkini per gudang ke tab <b>Stok</b>. Kalau internet putus, yang tertunda dikirim ulang otomatis tiap 5 menit.</p>
+            </div>
+            <form method="POST" action="{{ route('settings.sheets') }}" class="space-y-3">
+                @csrf
+                @method('PUT')
+                <div>
+                    <label class="label" for="sheets_url">URL Web App (Apps Script)</label>
+                    <input id="sheets_url" name="sheets_url" value="{{ old('sheets_url', $settings['sheets_url']) }}" class="input font-mono text-sm" maxlength="255"
+                        placeholder="https://script.google.com/macros/s/.../exec">
+                    <x-field-error name="sheets_url" />
+                </div>
+                @if (filled($settings['sheets_secret']))
+                    <div>
+                        <span class="label">Kode rahasia (salin ke <span class="font-mono">SECRET</span> di Apps Script)</span>
+                        <input readonly value="{{ $settings['sheets_secret'] }}" class="input bg-slate-50 font-mono text-xs" onfocus="this.select()">
+                    </div>
+                @endif
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <span class="text-xs text-slate-500">
+                        @if (filled($settings['sheets_url']))
+                            {{ $sheetsPending ? "{$sheetsPending} mutasi belum terkirim" : 'Semua mutasi sudah terkirim' }}
+                        @else
+                            Panduan pemasangan: <span class="font-mono">docs/google-sheets-gudang.gs</span>
+                        @endif
+                    </span>
+                    <button class="btn-primary"><i data-lucide="save" class="h-4 w-4"></i>Simpan</button>
+                </div>
+            </form>
+            @if (filled($settings['sheets_url']))
+                <form method="POST" action="{{ route('settings.sheets-sync') }}" data-confirm="Tes koneksi lalu tulis ulang tab Stok dan kirim semua mutasi yang tertunda?" class="flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    @csrf
+                    <p class="text-sm text-slate-500">Tes koneksi, tulis ulang tab Stok dari stok sekarang, lalu kirim semua mutasi yang tertunda.</p>
+                    <button class="btn-secondary shrink-0"><i data-lucide="refresh-cw" class="h-4 w-4"></i>Tes & Sinkron Penuh</button>
+                </form>
+            @endif
+        </section>
+
         <form method="POST" action="{{ route('settings.backup') }}" class="card space-y-4 p-6">
             @csrf
             <div>

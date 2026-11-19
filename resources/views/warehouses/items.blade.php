@@ -170,6 +170,7 @@
             </details>
 
             <x-field-error name="tracks_serial" />
+            <x-field-error name="item" />
 
             <section class="card overflow-x-auto">
                 <table class="min-w-full divide-y divide-slate-200 text-sm">
@@ -251,6 +252,11 @@
                                             <button type="button" @click="editing = false" class="btn-secondary px-3 py-1.5 text-xs">Batal</button>
                                             <button class="btn-primary px-3 py-1.5 text-xs"><i data-lucide="save" class="h-3.5 w-3.5"></i>Simpan</button>
                                         </div>
+                                    </form>
+                                    <form method="POST" action="{{ route('items.destroy', $item) }}" data-confirm="Hapus barang {{ $item->code }} · {{ $item->name }}? Data barang ini akan hilang dari master." class="mt-3 flex justify-end border-t border-slate-200 pt-3">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button class="flex items-center gap-1 text-xs font-medium text-rose-600 hover:underline"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i>Hapus barang</button>
                                     </form>
                                 </td>
                             </tr>

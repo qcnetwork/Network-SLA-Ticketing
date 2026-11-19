@@ -7,6 +7,7 @@ use App\Models\ServicePackage;
 use App\Models\Setting;
 use App\Models\TicketCategory;
 use App\Services\DatabaseBackup;
+use App\Services\SheetSync;
 use App\Services\TelegramService;
 use App\Services\TelegramTicketList;
 use Illuminate\Http\RedirectResponse;
@@ -27,7 +28,46 @@ class SettingController extends Controller
             'modemCount' => ModemType::query()->where('active', true)->count(),
             'packageCount' => ServicePackage::query()->where('active', true)->count(),
             'backupFormats' => DatabaseBackup::formats(),
+            'sheetsPending' => app(SheetSync::class)->pendingCount(),
         ]);
+    }
+
+    /**
+     * Point the warehouse mirror at an Apps Script web app. Only Google's script host is accepted, so the
+     * app never posts stock data anywhere else. The shared secret is made once and shown for the script.
+     */
+    public function updateSheets(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'sheets_url' => ['nullable', 'string', 'max:255', 'regex:#^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$#'],
+        ], ['sheets_url.regex' => 'Gunakan URL Web App dari Apps Script, contoh: https://script.google.com/macros/s/AKfy.../exec']);
+
+        Setting::write([
+            'sheets_url' => (string) ($data['sheets_url'] ?? ''),
+            'sheets_secret' => Setting::read('sheets_secret') ?: Str::random(40),
+        ]);
+
+        return redirect()->route('settings.edit')->with('success', filled($data['sheets_url'] ?? null)
+            ? 'URL spreadsheet disimpan. Salin kode rahasia ke Apps Script, lalu klik Tes & Sinkron Penuh.'
+            : 'Sinkron spreadsheet dimatikan');
+    }
+
+    public function syncSheets(SheetSync $sync): RedirectResponse
+    {
+        try {
+            $sync->ping();
+            $rows = $sync->snapshot();
+        } catch (\Throwable $e) {
+            return redirect()->route('settings.edit')->withErrors(['sheets_url' => $e->getMessage()]);
+        }
+        $sent = $sync->push();
+        $left = $sync->pendingCount();
+
+        $message = "Spreadsheet tersambung. Tab Stok ditulis ulang ({$rows} baris), {$sent} mutasi terkirim";
+
+        return $left
+            ? redirect()->route('settings.edit')->withErrors(['sheets_url' => "{$message}, tapi {$left} mutasi belum terkirim. Dicoba lagi otomatis; cek log bila terus gagal."])
+            : redirect()->route('settings.edit')->with('success', "{$message}.");
     }
 
     public function update(Request $request): RedirectResponse

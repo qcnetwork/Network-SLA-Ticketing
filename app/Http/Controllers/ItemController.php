@@ -7,6 +7,7 @@ use App\Models\ItemCategory;
 use App\Services\InventoryService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -54,6 +55,24 @@ class ItemController extends Controller
         $item->update($data + ['active' => $request->boolean('active'), 'tracks_serial' => $this->tracksSerial($request, $data, $item)]);
 
         return back()->with('success', "Barang {$item->code} diperbarui");
+    }
+
+    /**
+     * Remove an item entered by mistake. Stock, movements, SNs, material requests, sales and usage lines all
+     * point at the item (most cascade on delete), so an item with any of that history is only deactivated.
+     */
+    public function destroy(Item $item): RedirectResponse
+    {
+        $used = $item->stocks()->where('quantity', '>', 0)->exists()
+            || $item->serialUnits()->exists()
+            || collect(['stock_movements', 'material_request_lines', 'sale_lines', 'material_usage_lines'])
+                ->contains(fn (string $table) => DB::table($table)->where('item_id', $item->id)->exists());
+        if ($used) {
+            return back()->withErrors(['item' => "{$item->code} sudah punya stok atau riwayat transaksi, jadi tidak bisa dihapus. Nonaktifkan saja supaya tidak muncul di pilihan"]);
+        }
+        $item->delete();
+
+        return back()->with('success', "Barang {$item->code} dihapus");
     }
 
     /**

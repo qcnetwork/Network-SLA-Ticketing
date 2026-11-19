@@ -89,6 +89,10 @@ class ItemCategory extends Model
     public static function guessName(?string $code, ?string $name): ?string
     {
         $text = ' '.strtoupper(trim("{$code} {$name}")).' ';
+        // A cable named after what it plugs into ("KABEL SFP", "KABEL LAN") is still a cable, counted by length.
+        if (str_starts_with(strtoupper(trim((string) $code)), 'KBL') || preg_match('/^\s*KABEL\b/i', (string) $name)) {
+            return 'Kabel';
+        }
         foreach (self::KEYWORDS as $category => $words) {
             foreach ($words as $word) {
                 if (str_contains($text, $word)) {

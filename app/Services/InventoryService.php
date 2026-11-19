@@ -41,6 +41,26 @@ class InventoryService
         return DB::transaction(fn () => $this->move(StockMovementType::MASUK, $item, $quantity, null, Warehouse::main(), $actor, $notes));
     }
 
+    /**
+     * Bring a counted item's main-warehouse stock to an exact figure (an opening balance or a stock take):
+     * the difference comes in as MASUK or goes out as KOREKSI. Null when the stock already matches.
+     */
+    public function setMainStock(Item $item, int $quantity, User $actor, ?string $notes = null): ?StockMovement
+    {
+        $this->ensureCounted($item, 'item');
+
+        return DB::transaction(function () use ($item, $quantity, $actor, $notes) {
+            $main = Warehouse::main();
+            $difference = max(0, $quantity) - $this->stock($main, $item)->quantity;
+
+            return match (true) {
+                $difference > 0 => $this->move(StockMovementType::MASUK, $item, $difference, null, $main, $actor, $notes),
+                $difference < 0 => $this->move(StockMovementType::KOREKSI, $item, -$difference, $main, null, $actor, $notes),
+                default => null,
+            };
+        });
+    }
+
     public function send(Item $item, int $quantity, User $technician, User $actor, ?string $notes = null): StockMovement
     {
         $this->ensureCounted($item, 'item');
@@ -154,7 +174,7 @@ class InventoryService
 
             return $lines->map(function (array $line) use ($request) {
                 $item = $this->findItem($line['code'], 'materials');
-                $holder = User::query()->where('role', Role::TEKNISI)->find((int) ($line['technician_id'] ?? 0))
+                $holder = User::query()->whereIn('role', Role::stockHolders())->find((int) ($line['technician_id'] ?? 0))
                     ?? throw ValidationException::withMessages(['materials' => "Pilih gudang teknisi untuk {$item->code}"]);
                 $warehouse = Warehouse::of($holder);
                 $notes = trim((string) ($line['notes'] ?? '')) ?: null;

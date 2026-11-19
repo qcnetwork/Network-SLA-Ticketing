@@ -67,6 +67,28 @@ class InventoryTest extends TestCase
         $this->get("/gudang/{$own->id}")->assertOk()->assertSee('ADAPTOR 12 V 1 A');
     }
 
+    public function test_helpdesk_can_carry_stock_and_use_it_on_a_ticket(): void
+    {
+        $helpdesk = $this->userWithRole(Role::HELPDESK, ['name' => 'Rina HD']);
+        $cs = $this->userWithRole(Role::CS);
+        $this->actingAs($this->warehouse)->post('/gudang/masuk', ['item' => 'ADP001', 'quantity' => 5])->assertSessionHasNoErrors();
+
+        $this->get('/gudang')->assertOk()->assertSee('Rina HD');
+        $this->post('/gudang/kirim', ['item' => 'ADP001', 'quantity' => 2, 'technician_id' => $helpdesk->id])->assertSessionHasNoErrors();
+        $this->assertSame(2, $this->quantity(Warehouse::of($helpdesk), $this->adaptor));
+        // Only technicians and helpdesk carry stock.
+        $this->post('/gudang/kirim', ['item' => 'ADP001', 'quantity' => 1, 'technician_id' => $cs->id])->assertSessionHasErrors('technician_id');
+
+        $ticket = Ticket::factory()->status(TicketStatus::PERBAIKAN)->assignedTo($this->technician)->create(['repair_started_at' => now()]);
+        $this->actingAs($helpdesk)->get("/tickets/{$ticket->ticket_number}")->assertOk()
+            ->assertViewHas('stockHolders', [['id' => $helpdesk->id, 'name' => 'Rina HD · Helpdesk']]);
+        $this->post("/tickets/{$ticket->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI", [
+            'notes' => 'Ganti adaptor dari stok HD',
+            'materials' => [['technician_id' => $helpdesk->id, 'code' => 'ADP001', 'quantity' => 1]],
+        ])->assertSessionHasNoErrors();
+        $this->assertSame(1, $ticket->materialRequests()->sole()->lines()->where('warehouse_id', Warehouse::of($helpdesk)->id)->count());
+    }
+
     public function test_technician_uses_material_in_the_repair_resume(): void
     {
         Stock::query()->create(['warehouse_id' => Warehouse::of($this->technician)->id, 'item_id' => $this->adaptor->id, 'quantity' => 3]);

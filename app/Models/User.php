@@ -95,6 +95,13 @@ class User extends Authenticatable
         return $query->where('role', Role::TEKNISI)->where('active', true)->orderBy('name');
     }
 
+    /** Active technicians and helpdesk, who can be sent stock to carry. Technicians come first. */
+    public function scopeStockHolders(Builder $query): Builder
+    {
+        return $query->whereIn('role', Role::stockHolders())->where('active', true)
+            ->orderByRaw('role = ? desc', [Role::TEKNISI->value])->orderBy('name');
+    }
+
     public function assignedTickets(): BelongsToMany
     {
         return $this->belongsToMany(Ticket::class, 'ticket_technician')->withTimestamps();

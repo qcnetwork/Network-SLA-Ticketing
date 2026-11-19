@@ -38,6 +38,7 @@ class ImportTrackingWorkbook extends Command
         ]);
         $this->line('Barang baru ('.count($report['items']).'): '.(implode(', ', $report['items']) ?: '-'));
         $this->line('Akun teknisi baru, nonaktif ('.count($report['technicians']).'): '.(implode(', ', $report['technicians']) ?: '-'));
+        $this->line('Mitra baru ('.count($report['partners']).'): '.(implode(', ', $report['partners']) ?: '-'));
         $this->info($dryRun ? 'Dry run selesai, tidak ada yang disimpan.' : 'Import selesai.');
 
         return self::SUCCESS;

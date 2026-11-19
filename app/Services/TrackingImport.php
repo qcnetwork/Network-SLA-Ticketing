@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\Role;
 use App\Models\Item;
 use App\Models\ItemCategory;
+use App\Models\Partner;
 use App\Models\SerialUnit;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -40,11 +41,23 @@ class TrackingImport
         'TM RASYID JR' => 'RASYID JR', 'RSYID JR' => 'RASYID JR',
     ];
 
+    /**
+     * Holders outside the field crews: a unit with them has left the office's stock. A partner (mitra)
+     * gets a record in the partner list; a giveaway has no one to record. Partners added in the app
+     * are recognised too.
+     */
+    private const OUTSIDE_HOLDERS = [
+        'PT IKM' => 'Mitra', 'KAMSI PURBALINGGA' => 'Mitra', 'LADJU NET' => 'Mitra', 'MJ NET' => 'Mitra',
+        'ADI JAKARTA' => 'Mitra', 'ADI BEKASI' => 'Mitra', 'YASMIN NET' => 'Mitra', 'AVI JAWA NET' => 'Mitra',
+        'JAWA NET' => 'Mitra', 'RIO KESESI' => 'Mitra', 'SHAMFANG' => 'Mitra', 'JAFAR' => 'Mitra',
+        'DORIS' => 'Partner jual beli', 'DOPRIZE' => null, 'DOORPRIZE' => null,
+    ];
+
     /** @var array<int, Warehouse> each technician's warehouse, looked up once */
     private array $warehouses = [];
 
     /**
-     * @return array{rows: int, units: int, invalid: int, duplicates: int, kept: int, items: list<string>, technicians: list<string>, places: array<string, int>}
+     * @return array{rows: int, units: int, invalid: int, duplicates: int, kept: int, items: list<string>, technicians: list<string>, partners: list<string>, places: array<string, int>}
      */
     public function import(string $path, bool $dryRun = false): array
     {
@@ -65,17 +78,19 @@ class TrackingImport
             'kept' => $kept->count(),
             'items' => [],
             'technicians' => [],
+            'partners' => [],
             'places' => [],
         ];
 
         $apply = function () use ($units, &$report) {
             $items = $this->resolveItems($units, $report['items']);
-            $holders = $this->resolveHolders($units, $report['technicians']);
+            $outside = $this->resolveOutsiders($units, $report['partners']);
+            $holders = $this->resolveHolders($units->reject(fn (array $row) => isset($outside[$this->holderName($row['holder']) ?? ''])), $report['technicians']);
             $main = Warehouse::main();
             $now = now();
 
-            $records = $units->map(function (array $row) use ($items, $holders, $main, $now, &$report) {
-                [$warehouse, $place] = $this->placeOf($row, $holders, $main);
+            $records = $units->map(function (array $row) use ($items, $holders, $outside, $main, $now, &$report) {
+                [$warehouse, $place, $condition] = $this->placeOf($row, $holders, $outside, $main);
                 $report['places'][$place] = ($report['places'][$place] ?? 0) + 1;
 
                 return [
@@ -89,7 +104,7 @@ class TrackingImport
                     'installed_to' => $this->cut($row['installed_to'], 255),
                     'install_status' => $this->cut($row['status'], 100),
                     'replaced_device' => $this->cut($row['replaced'], 150),
-                    'condition' => $this->cut($row['condition'], 100),
+                    'condition' => $this->cut($condition, 100),
                     'notes' => $this->cut($row['notes'], 255),
                     'imported_at' => $now,
                     'created_at' => $now,
@@ -228,24 +243,63 @@ class TrackingImport
     }
 
     /**
-     * Where the unit is now: [warehouse or null, a label for the report].
+     * Where the unit is now: [warehouse or null, a label for the report, the condition to store].
+     * A unit with a partner leaves the stock with the partner's name as its condition, so the unit's
+     * location reads "Keluar stok · Mitra PT IKM".
      *
      * @param  array<string, User>  $holders
-     * @return array{0: ?Warehouse, 1: string}
+     * @param  array<string, string>  $outside  holder name => condition label
+     * @return array{0: ?Warehouse, 1: string, 2: ?string}
      */
-    private function placeOf(array $row, array $holders, Warehouse $main): array
+    private function placeOf(array $row, array $holders, array $outside, Warehouse $main): array
     {
         $condition = strtoupper((string) $row['condition']);
-        $holder = $holders[$this->holderName($row['holder']) ?? ''] ?? null;
+        $name = $this->holderName($row['holder']) ?? '';
+        $holder = $holders[$name] ?? null;
+        $kept = $row['condition'];
 
         return match (true) {
-            (bool) preg_match('/KEMBALI|KANTOR|WAREHO|WAREHOU/', $condition) => [$main, 'Kembali ke Gudang Utama'],
-            (bool) preg_match('/RETU|EROR|ERROR|RUSAK|SELLER/', $condition.' '.strtoupper((string) $row['holder'])) => [null, 'Keluar stok (retur/eror)'],
-            str_contains($condition, 'STOK TEKNISI') && $holder !== null => [$this->warehouseOf($holder), 'Di gudang teknisi'],
-            $row['installed_to'] !== null => [null, 'Terpasang di pelanggan'],
-            $holder !== null => [$this->warehouseOf($holder), 'Di gudang teknisi'],
-            default => [$main, 'Di Gudang Utama'],
+            (bool) preg_match('/KEMBALI|KANTOR|WAREHO|WAREHOU/', $condition) => [$main, 'Kembali ke Gudang Utama', $kept],
+            (bool) preg_match('/RETU|EROR|ERROR|RUSAK|SELLER/', $condition.' '.strtoupper((string) $row['holder'])) => [null, 'Keluar stok (retur/eror)', $kept],
+            isset($outside[$name]) => [null, "Keluar ke {$outside[$name]}", $outside[$name]],
+            str_contains($condition, 'STOK TEKNISI') && $holder !== null => [$this->warehouseOf($holder), 'Di gudang teknisi', $kept],
+            $row['installed_to'] !== null => [null, 'Terpasang di pelanggan', $kept],
+            $holder !== null => [$this->warehouseOf($holder), 'Di gudang teknisi', $kept],
+            default => [$main, 'Di Gudang Utama', $kept],
         };
+    }
+
+    /**
+     * The holders in the sheet that are partners or giveaways rather than crews, as holder name =>
+     * condition label. Each partner gets a record in the partner list when it has none yet.
+     *
+     * @param  list<string>  $created
+     * @return array<string, string>
+     */
+    private function resolveOutsiders(Collection $units, array &$created): array
+    {
+        $partners = Partner::query()->get()->keyBy(fn (Partner $partner) => strtoupper(trim($partner->name)));
+        $known = self::OUTSIDE_HOLDERS + $partners->map(fn () => 'Mitra')->all();
+
+        $outside = [];
+        foreach ($units->pluck('holder')->map(fn ($holder) => $this->holderName($holder))->filter()->unique() as $name) {
+            if (! array_key_exists($name, $known)) {
+                continue;
+            }
+            $kind = $known[$name];
+            if ($kind === null) {
+                $outside[$name] = 'Doorprize event';
+
+                continue;
+            }
+            if (! $partners->has($name)) {
+                $partners[$name] = Partner::query()->create(['name' => $name, 'notes' => $kind, 'active' => true]);
+                $created[] = $name;
+            }
+            $outside[$name] = "{$kind} {$partners[$name]->name}";
+        }
+
+        return $outside;
     }
 
     private function warehouseOf(User $user): Warehouse
