@@ -8,6 +8,7 @@ use App\Enums\TicketKind;
 use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Item;
+use App\Models\SerialUnit;
 use App\Models\ServicePackage;
 use App\Models\Stock;
 use App\Models\TelegramLog;
@@ -181,6 +182,41 @@ class InstallationWorkflowTest extends TestCase
         $this->assertMatchesRegularExpression('/^CUST-\d{6}$/', $ticket->customer_id);
         $this->assertTrue(Customer::query()->withCode($ticket->customer_id)->exists());
         $this->assertSame('ODP-3', $ticket->odp);
+    }
+
+    public function test_a_modem_installed_on_a_psb_is_tracked_to_that_ticket(): void
+    {
+        // The crew carries a modem with an SN.
+        $warehouse = $this->userWithRole(Role::GUDANG);
+        Item::query()->create(['code' => 'MDM049', 'name' => 'MODEM FIBERHOME HG6145D2', 'tracks_serial' => true, 'scans_mac' => true]);
+        $this->actingAs($warehouse)->post('/gudang/masuk-sn', ['item' => 'MDM049', 'serials' => [['sn' => 'FHTTC1FA89B6', 'mac' => '28:6D:DA:0C:D4:60']]])->assertSessionHasNoErrors();
+        $this->post('/gudang/kirim-sn', ['technician_id' => $this->technician->id, 'serials' => [['sn' => 'FHTTC1FA89B6']]])->assertSessionHasNoErrors();
+
+        $ticket = $this->order();
+        $this->act($this->helpdesk, $ticket, 'PSB_LANGSUNG_PASANG', ['odp' => 'ODP-3'])->assertSessionHasNoErrors();
+        $this->act($this->helpdesk, $ticket, 'PSB_TUGAS_PASANG', ['technician_ids' => [$this->technician->id]])->assertSessionHasNoErrors();
+        $this->act($this->technician, $ticket, 'PSB_MULAI_PASANG')->assertSessionHasNoErrors();
+        $this->act($this->technician, $ticket, 'PSB_PASANG_SELESAI', [
+            'notes' => 'ONT online',
+            'materials' => [['technician_id' => $this->technician->id, 'code' => 'MDM049', 'serial' => 'FHTTC1FA89B6']],
+        ])->assertSessionHasNoErrors();
+
+        // Until the warehouse approves, the modem is still the crew's.
+        $unit = SerialUnit::query()->where('serial_number', 'FHTTC1FA89B6')->sole();
+        $this->assertSame(Warehouse::of($this->technician)->id, $unit->warehouse_id);
+
+        $this->actingAs($warehouse)->post('/gudang/pengajuan/'.$ticket->materialRequests()->sole()->id.'/setujui')->assertSessionHasNoErrors();
+        $unit->refresh();
+        $this->assertNull($unit->warehouse_id);
+        $this->assertSame($ticket->id, $unit->ticket_id);
+        $this->assertSame('pelanggan', $unit->destination());
+        $this->assertSame([$this->technician->name, 'PEMASANGAN BARU'], [$unit->holder_name, $unit->install_status]);
+        $this->assertStringContainsString('Budi Santoso', $unit->installed_to);
+
+        // The tracking page lists it at the customer, linked to the PSB ticket.
+        $this->get('/gudang/tracking?q=FHTTC1FA89B6')->assertOk()
+            ->assertSee('Budi Santoso · '.$ticket->ticket_number)->assertSee(route('tickets.show', $ticket), false);
+        $this->get("/gudang/unit/{$unit->id}")->assertOk()->assertSee($ticket->ticket_number)->assertSee('Dipakai di Tiket');
     }
 
     public function test_odp_shareloc_gives_the_distance_to_the_house(): void

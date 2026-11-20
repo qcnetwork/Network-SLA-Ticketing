@@ -87,55 +87,78 @@ class WarehouseController extends Controller
     }
 
     /**
-     * One category's stock in a warehouse, a level at a time: jenis (ONT GPON / EPON / XPON), then merk, then the
-     * models with their stock and SNs. A level nobody filled in is skipped; items without one sit under
-     * "Belum ditentukan" (query value "-"). `semua` lists every model of the current level at once.
+     * One category in a warehouse, a level at a time: jenis (ONT GPON / EPON / XPON), then merk, then the models.
+     * A level nobody filled in is skipped; items without one sit under "Belum ditentukan" (query value "-"), and
+     * `semua` lists every model of the current level at once. Two views of the same tree: what is still in stock
+     * ("tersedia", with each model's SNs) and, from the main warehouse, the units of these models that already
+     * left stock ("terpakai", where each one went).
      */
     public function category(Request $request, Warehouse $warehouse, ItemCategory $category): View
     {
         $user = $request->user();
         abort_if($user->role === Role::TEKNISI && $warehouse->user_id !== $user->id, 403);
+        $canManage = $user->canAccess(Menu::WAREHOUSE_MANAGE);
+        $used = $request->query('tampil') === 'terpakai' && $warehouse->isMain() && $canManage;
         $variant = $request->query('jenis');
         $brand = $request->query('merk');
-        $matches = fn (?string $value, ?string $wanted) => $wanted === null || ($wanted === '-' ? $value === null : $value === $wanted);
+        $matches = fn (Item $item) => ($variant === null || ($variant === '-' ? $item->variant === null : $item->variant === $variant))
+            && ($brand === null || ($brand === '-' ? $item->brand === null : $item->brand === $brand));
 
-        $stocks = $warehouse->stocks()->where('quantity', '>', 0)
-            ->whereHas('item', fn ($q) => $q->where('item_category_id', $category->id))
-            ->with(['item.category', 'item.sendAs'])->get()
-            ->filter(fn (Stock $stock) => $matches($stock->item->variant, $variant) && $matches($stock->item->brand, $brand))
-            ->sortBy('item.code')->values();
+        // Each row is one model with how many units count in this view.
+        $rows = ($used
+            ? Item::query()->where('item_category_id', $category->id)->with(['category', 'sendAs'])
+                ->withCount(['serialUnits as units' => fn ($q) => $q->whereNull('warehouse_id')])->get()
+                ->map(fn (Item $item) => ['item' => $item, 'count' => (int) $item->units])
+            : $warehouse->stocks()->where('quantity', '>', 0)
+                ->whereHas('item', fn ($q) => $q->where('item_category_id', $category->id))
+                ->with(['item.category', 'item.sendAs'])->get()
+                ->map(fn (Stock $stock) => ['item' => $stock->item, 'count' => $stock->quantity, 'stock' => $stock]))
+            ->filter(fn (array $row) => $row['count'] > 0 && $matches($row['item']))
+            ->sortBy(fn (array $row) => $row['item']->code)->values();
 
         $level = match (true) {
             $request->boolean('semua') => 'model',
-            $variant === null && $stocks->contains(fn (Stock $stock) => $stock->item->variant !== null) => 'jenis',
-            $brand === null && $stocks->contains(fn (Stock $stock) => $stock->item->brand !== null) => 'merk',
+            $variant === null && $rows->contains(fn (array $row) => $row['item']->variant !== null) => 'jenis',
+            $brand === null && $rows->contains(fn (array $row) => $row['item']->brand !== null) => 'merk',
             default => 'model',
         };
-        $groups = $level === 'model' ? collect() : $stocks
-            ->groupBy(fn (Stock $stock) => ($level === 'jenis' ? $stock->item->variant : $stock->item->brand) ?? '-')
-            ->map(fn ($rows, $key) => [
+        $groups = $level === 'model' ? collect() : $rows
+            ->groupBy(fn (array $row) => ($level === 'jenis' ? $row['item']->variant : $row['item']->brand) ?? '-')
+            ->map(fn ($group, $key) => [
                 'key' => (string) $key,
-                'models' => $rows->count(),
-                'units' => (int) $rows->sum('quantity'),
-                'brands' => $rows->pluck('item.brand')->filter()->unique()->count(),
-                'unit' => $rows->pluck('item.unit')->unique()->count() === 1 ? $rows->first()->item->unit : 'unit',
+                'models' => $group->count(),
+                'units' => (int) $group->sum('count'),
+                'brands' => $group->pluck('item.brand')->filter()->unique()->count(),
+                'unit' => $group->pluck('item.unit')->unique()->count() === 1 ? $group->first()['item']->unit : 'unit',
             ])
             // Named groups A-Z, "Belum ditentukan" last.
             ->sortBy(fn (array $group) => ($group['key'] === '-' ? '1' : '0').$group['key'])->values();
+        $itemIds = $rows->pluck('item.id');
 
         return view('warehouses.category', [
             'warehouse' => $warehouse->load('user'),
             'category' => $category,
             'variant' => $variant,
             'brand' => $brand,
+            'used' => $used,
             'level' => $level,
             'groups' => $groups,
-            'stocks' => $stocks,
-            'total' => (int) $stocks->sum('quantity'),
-            'units' => $level === 'model'
-                ? $warehouse->serialUnits()->whereIn('item_id', $stocks->pluck('item_id'))->orderBy('serial_number')->get()->groupBy('item_id')
+            'models' => $rows->count(),
+            'total' => (int) $rows->sum('count'),
+            'stocks' => $used ? collect() : $rows->pluck('stock'),
+            'units' => ! $used && $level === 'model'
+                ? $warehouse->serialUnits()->whereIn('item_id', $itemIds)->orderBy('serial_number')->get()->groupBy('item_id')
                 : collect(),
-            'canManage' => $user->canAccess(Menu::WAREHOUSE_MANAGE),
+            // Units of these models that already left stock, for the "terpakai" view and the counts beside each model.
+            'usedUnits' => $used && $level === 'model'
+                ? app(TrackingController::class)->query(['items' => $itemIds->all()])
+                    ->with(['item.category', 'item.sendAs', 'ticket', 'usage', 'sale', 'convertedTo', 'warehouse'])
+                    ->orderByDesc('taken_at')->orderByDesc('id')->paginate(50)->withQueryString()
+                : null,
+            'usedCounts' => ! $used && $level === 'model' && $warehouse->isMain() && $canManage
+                ? SerialUnit::query()->used()->whereIn('item_id', $itemIds)->selectRaw('item_id, count(*) as n')->groupBy('item_id')->pluck('n', 'item_id')
+                : collect(),
+            'canManage' => $canManage,
         ]);
     }
 

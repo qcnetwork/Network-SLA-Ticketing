@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -13,6 +14,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class SerialUnit extends Model
 {
     protected $guarded = ['id'];
+
+    /**
+     * Where a unit that left stock went, as the tracking page groups it: installed at a customer, handed to a
+     * partner (mitra) or sold, returned / broken, or anything else (a roll opened into meters, no note).
+     */
+    public const DESTINATIONS = [
+        'pelanggan' => 'Terpasang di pelanggan',
+        'mitra' => 'Mitra / terjual',
+        'retur' => 'Retur / eror',
+        'lainnya' => 'Lainnya',
+    ];
 
     protected function casts(): array
     {
@@ -47,6 +59,68 @@ class SerialUnit extends Model
     public function sale(): BelongsTo
     {
         return $this->belongsTo(Sale::class);
+    }
+
+    /**
+     * Units no longer in any warehouse: installed, handed out, sold or written off ("kotor").
+     */
+    public function scopeUsed(Builder $query): Builder
+    {
+        return $query->whereNull('warehouse_id');
+    }
+
+    /**
+     * Narrow used units to one of DESTINATIONS, in the same order location() reads a unit.
+     */
+    public function scopeDestination(Builder $query, string $destination): Builder
+    {
+        $toPartner = fn (Builder $q) => $q->where('condition', 'like', 'Mitra %')->orWhere('condition', 'like', 'Partner %');
+        $notInApp = fn (Builder $q) => $q->whereNull('ticket_id')->whereNull('material_usage_id')->whereNull('sale_id')->whereNull('converted_to_warehouse_id');
+
+        return match ($destination) {
+            'pelanggan' => $query->where(fn (Builder $q) => $q->whereNotNull('ticket_id')->orWhereNotNull('material_usage_id')
+                ->orWhere(fn (Builder $q) => $notInApp($q)->whereNull('condition')->whereNotNull('installed_to'))),
+            'mitra' => $query->where(fn (Builder $q) => $q->whereNotNull('sale_id')
+                ->orWhere(fn (Builder $q) => $notInApp($q)->where($toPartner))),
+            'retur' => $query->where(fn (Builder $q) => $notInApp($q)->whereNotNull('condition')->whereNot($toPartner)),
+            default => $query->where(fn (Builder $q) => $q->whereNotNull('converted_to_warehouse_id')
+                ->orWhere(fn (Builder $q) => $notInApp($q)->whereNull('condition')->whereNull('installed_to'))),
+        };
+    }
+
+    /**
+     * Which of DESTINATIONS a used unit belongs to (null while it sits in a warehouse).
+     */
+    public function destination(): ?string
+    {
+        $partner = $this->condition !== null && (str_starts_with($this->condition, 'Mitra ') || str_starts_with($this->condition, 'Partner '));
+
+        return match (true) {
+            $this->warehouse_id !== null => null,
+            $this->ticket_id !== null || $this->material_usage_id !== null => 'pelanggan',
+            $this->sale_id !== null => 'mitra',
+            $this->converted_to_warehouse_id !== null => 'lainnya',
+            $this->condition !== null => $partner ? 'mitra' : 'retur',
+            $this->installed_to !== null => 'pelanggan',
+            default => 'lainnya',
+        };
+    }
+
+    /**
+     * Where it is now, as a short place name (customer, partner, buyer...) without the "Terpasang ·" prefix.
+     */
+    public function placeName(): string
+    {
+        return match (true) {
+            $this->warehouse !== null => $this->warehouse->name,
+            $this->ticket !== null => trim("{$this->ticket->customer_name} · {$this->ticket->ticket_number}", ' ·'),
+            $this->usage !== null => $this->usage->location,
+            $this->sale !== null => "{$this->sale->buyer_name} ({$this->sale->sale_number})",
+            $this->convertedTo !== null => "Dibuka jadi meter · {$this->convertedTo->name}",
+            $this->condition !== null && $this->destination() === 'mitra' => preg_replace('/^(Mitra|Partner jual beli) /', '', $this->condition),
+            $this->installed_to !== null => $this->installed_to,
+            default => $this->condition ?? '-',
+        };
     }
 
     /**

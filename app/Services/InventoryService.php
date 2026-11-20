@@ -297,7 +297,7 @@ class InventoryService
                 if ($line->serialUnit) {
                     $serial = $this->unitIn($line->serialUnit->serial_number, $line->warehouse, 'material_request', $line->item);
                     $this->move(StockMovementType::PAKAI, $line->item, 1, $line->warehouse, null, $actor, $line->notes, $ticket, $serial, usage: $usage);
-                    $serial->update(['warehouse_id' => null, 'ticket_id' => $ticket->id]);
+                    $serial->update(['warehouse_id' => null, 'ticket_id' => $ticket->id] + $this->installedBy($line->warehouse, $usage->location, $usage->purpose->label(), today()));
 
                     continue;
                 }
@@ -375,7 +375,7 @@ class InventoryService
                     foreach ($serials as $number) {
                         $serial = $this->unitIn($number, $main, 'lines', $item);
                         $this->move(StockMovementType::JUAL, $item, 1, $main, null, $actor, $movementNote, serial: $serial, sale: $record);
-                        $serial->update(['warehouse_id' => null, 'sale_id' => $record->id]);
+                        $serial->update(['warehouse_id' => null, 'sale_id' => $record->id, 'holder_name' => mb_substr($record->buyer_name, 0, 150), 'taken_at' => $soldAt, 'installed_to' => null, 'install_status' => 'TERJUAL', 'replaced_device' => null, 'condition' => null]);
                     }
                     $quantity = $serials->count();
                 } else {
@@ -441,7 +441,8 @@ class InventoryService
                         $serial = $this->unitIn($number, $source, 'lines', $item);
                         $this->ensureNotRequested($serial, 'lines');
                         $this->move(StockMovementType::PAKAI, $item, 1, $source, null, $actor, $movementNote, serial: $serial, usage: $usage);
-                        $serial->update(['warehouse_id' => null, 'material_usage_id' => $usage->id]);
+                        $serial->update(['warehouse_id' => null, 'material_usage_id' => $usage->id]
+                            + $this->installedBy($source, $usage->location, $usage->purpose->label(), $usage->used_at, $usage->removed_device));
                         $usage->lines()->create([
                             'item_id' => $item->id, 'item_name' => $item->name, 'warehouse_id' => $source->id,
                             'serial_unit_id' => $serial->id, 'serial_number' => $serial->serial_number, 'mac' => $serial->mac,
@@ -491,7 +492,7 @@ class InventoryService
                         continue;
                     }
                     $this->move(StockMovementType::KOREKSI, $line->item, $line->quantity, null, $line->warehouse, $actor, "Batal pemakaian: {$reason}", serial: $line->serialUnit, usage: $usage);
-                    $line->serialUnit?->update(['warehouse_id' => $line->warehouse_id, 'material_usage_id' => null]);
+                    $line->serialUnit?->update(['warehouse_id' => $line->warehouse_id, 'material_usage_id' => null, 'installed_to' => null, 'install_status' => null, 'replaced_device' => null]);
                 }
             }
             $usage->update(['cancelled_at' => now(), 'cancelled_by' => $actor->id, 'cancel_reason' => mb_substr($reason, 0, 255)]);
@@ -688,6 +689,29 @@ class InventoryService
         return (int) Stock::query()->where('warehouse_id', $warehouse->id)->where('item_id', $item->id)->value('quantity');
     }
 
+    /**
+     * What a unit leaving stock to be installed records, in the same fields the TRACKING ALAT sheet filled in:
+     * who took it, when, where it went, why, and the device it replaced. So app installs list beside imported ones.
+     *
+     * @return array<string, mixed>
+     */
+    private function installedBy(Warehouse $from, ?string $place, string $purpose, mixed $date, ?string $replaced = null): array
+    {
+        return [
+            'holder_name' => $this->holderOf($from),
+            'taken_at' => $date,
+            'installed_to' => $place ? mb_substr($place, 0, 255) : null,
+            'install_status' => mb_substr(mb_strtoupper($purpose), 0, 100),
+            'replaced_device' => $replaced ? mb_substr($replaced, 0, 150) : null,
+            'condition' => null,
+        ];
+    }
+
+    private function holderOf(Warehouse $warehouse): string
+    {
+        return mb_substr($warehouse->user?->name ?? $warehouse->name, 0, 150);
+    }
+
     private function ensureNotRequested(SerialUnit $serial, string $field): void
     {
         $line = MaterialRequestLine::query()->pending()->where('serial_unit_id', $serial->id)->with('request.ticket')->first();
@@ -722,7 +746,7 @@ class InventoryService
                 continue;
             }
             $this->move($type, $item, 1, $from, $to, $actor, $notes, serial: $serial);
-            $serial->update(['warehouse_id' => $to->id]);
+            $serial->update(['warehouse_id' => $to->id] + ($to->isMain() ? [] : ['holder_name' => $this->holderOf($to), 'taken_at' => today()]));
         }
 
         return $serials->count();

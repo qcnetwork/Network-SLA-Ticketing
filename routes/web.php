@@ -22,6 +22,7 @@ use App\Http\Controllers\SettingController;
 use App\Http\Controllers\TicketCategoryController;
 use App\Http\Controllers\TicketController;
 use App\Http\Controllers\TicketShareController;
+use App\Http\Controllers\TrackingController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
@@ -92,6 +93,10 @@ Route::middleware('auth')->group(function () {
         Route::post('/gudang/kirim-sn', [WarehouseController::class, 'sendSerials'])->name('warehouses.send-serials');
         Route::get('/gudang/unit-sn', [WarehouseController::class, 'availableSerials'])->name('warehouses.available-serials');
         Route::put('/gudang/unit-sn/{serialUnit}', [WarehouseController::class, 'updateSerial'])->name('warehouses.update-serial');
+        // Units that left stock ("kotor"): where each SN went, and one unit's whole history.
+        Route::get('/gudang/tracking', [TrackingController::class, 'index'])->name('tracking.index');
+        Route::get('/gudang/tracking/export', [TrackingController::class, 'export'])->name('tracking.export');
+        Route::get('/gudang/unit/{serialUnit}', [TrackingController::class, 'show'])->name('tracking.unit');
         Route::post('/gudang/{warehouse}/retur-sn', [WarehouseController::class, 'returnSerials'])->name('warehouses.return-serials');
         Route::post('/gudang/pengajuan/{materialRequest}/setujui', [WarehouseController::class, 'approveRequest'])->name('material-requests.approve');
         Route::post('/gudang/pengajuan/{materialRequest}/tolak', [WarehouseController::class, 'rejectRequest'])->name('material-requests.reject');

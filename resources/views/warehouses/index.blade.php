@@ -9,6 +9,7 @@
         </div>
         @if ($canManage)
             <div class="flex shrink-0 flex-wrap gap-2">
+                <a href="{{ route('tracking.index') }}" class="btn-secondary"><i data-lucide="map-pin" class="h-4 w-4"></i>Tracking Unit</a>
                 <a href="{{ route('usages.index') }}" class="btn-secondary"><i data-lucide="clipboard-list" class="h-4 w-4"></i>Pemakaian Alat</a>
                 <a href="{{ route('sales.create') }}" class="btn-primary"><i data-lucide="shopping-cart" class="h-4 w-4"></i>Jual Barang</a>
                 <a href="{{ route('sales.index') }}" class="btn-secondary"><i data-lucide="receipt" class="h-4 w-4"></i>Log Penjualan</a>
@@ -35,7 +36,11 @@
                         @foreach ($serialMatches as $unit)
                             <li class="flex flex-wrap items-center justify-between gap-2 py-2">
                                 <span>
-                                    <span class="font-mono font-semibold">{{ $unit->serial_number }}</span>
+                                    @if ($canManage)
+                                        <a href="{{ route('tracking.unit', $unit) }}" class="font-mono font-semibold text-indigo-700 hover:underline">{{ $unit->serial_number }}</a>
+                                    @else
+                                        <span class="font-mono font-semibold">{{ $unit->serial_number }}</span>
+                                    @endif
                                     @if ($unit->mac)
                                         <span class="font-mono text-xs text-slate-500">· {{ $unit->formattedMac() }}</span>
                                     @endif

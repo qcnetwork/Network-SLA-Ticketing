@@ -40,7 +40,11 @@
                         @php($reopen = (int) old('serial_unit_id') === $unit->id)
                         <li x-data="{ editing: @js($reopen) }" :class="editing && 'sm:col-span-2'">
                             <div x-show="! editing" class="group flex items-center gap-1.5 font-mono">
-                                <span>{{ $unit->serial_number }}</span>
+                                @if ($canManage ?? false)
+                            <a href="{{ route('tracking.unit', $unit) }}" class="hover:text-indigo-700 hover:underline" title="Lihat riwayat unit">{{ $unit->serial_number }}</a>
+                        @else
+                            <span>{{ $unit->serial_number }}</span>
+                        @endif
                                 @if ($unit->mac)
                                     <span class="text-slate-400">{{ $unit->formattedMac() }}</span>
                                 @elseif ($item->scans_mac)
@@ -89,6 +93,9 @@
     <td class="px-5 py-3 text-right whitespace-nowrap">
         <span class="text-base font-bold text-slate-900">{{ number_format($stock->quantity, 0, ',', '.') }}</span>
         <span class="text-xs text-slate-500">{{ $item->unit }}</span>
+        @if (($usedCounts ?? collect())->get($item->id))
+            <a href="{{ route('tracking.index', ['barang' => $item->code]) }}" class="mt-0.5 block text-[11px] font-semibold text-amber-700 hover:underline">{{ number_format($usedCounts[$item->id], 0, ',', '.') }} terpakai →</a>
+        @endif
         @if ($showLow && $item->isLow($stock->quantity))
             <span class="mt-0.5 block text-[11px] font-semibold text-rose-600">Menipis (min {{ $item->min_stock }})</span>
         @endif
