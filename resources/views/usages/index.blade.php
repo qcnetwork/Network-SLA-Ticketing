@@ -25,7 +25,7 @@
     @include('warehouses.partials.summary', ['tiles' => [
         ['Pekerjaan Bulan Ini', $stats['jobs'], 'clipboard-list', 'emerald', 'pemakaian tercatat'],
         ['Unit Terpakai', $stats['units'], 'package-minus', 'indigo', 'bulan ini, semua satuan'],
-        ['Perangkat ber-SN', $stats['devices'], 'scan-barcode', 'violet', 'terpasang bulan ini'],
+        ['Unit ber-SN', $stats['devices'], 'scan-barcode', 'violet', 'terpasang bulan ini'],
     ]])
 
     {{-- This month by purpose; each chip filters the list. --}}

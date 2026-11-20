@@ -8,6 +8,7 @@ use App\Enums\Role;
 use App\Models\Item;
 use App\Models\ItemCategory;
 use App\Models\MaterialRequest;
+use App\Models\MaterialRequestLine;
 use App\Models\SerialUnit;
 use App\Models\Stock;
 use App\Models\StockMovement;
@@ -48,7 +49,7 @@ class WarehouseController extends Controller
                 ->orderByDesc('stocks_sum_quantity')->orderBy('name')->get(),
             'technicians' => User::stockHolders()->get(),
             // Every active item with what the main warehouse holds, for the receive and send forms.
-            'catalog' => $this->catalog(Item::query()->where('active', true)->addSelect(['held' => $this->heldIn($main)])->get()),
+            'catalog' => $this->catalog(Item::query()->where('active', true)->addSelect(['held' => $this->heldIn($main)])->get(), $main),
             'lowStock' => Item::query()->where('active', true)->where('min_stock', '>', 0)->with('category')
                 ->addSelect(['items.*', 'held' => $this->heldIn($main)])->orderBy('code')->get()
                 ->filter(fn (Item $item) => $item->isLow((int) $item->held))->values(),
@@ -80,7 +81,7 @@ class WarehouseController extends Controller
             ...$this->stockPage($request, $warehouse),
             // What the technician holds, for the return form.
             'catalog' => $this->catalog(Item::query()->whereHas('stocks', fn ($q) => $q->where('warehouse_id', $warehouse->id)->where('quantity', '>', 0))
-                ->addSelect(['items.*', 'held' => $this->heldIn($warehouse)])->get()),
+                ->addSelect(['items.*', 'held' => $this->heldIn($warehouse)])->get(), $warehouse),
             'canManage' => $user->canAccess(Menu::WAREHOUSE_MANAGE),
         ]);
     }
@@ -116,7 +117,58 @@ class WarehouseController extends Controller
         $data = $this->validateSerials($request);
         $count = $this->inventory->returnSerials(array_column($data['serials'], 'sn'), $warehouse, $request->user(), $data['notes'] ?? null);
 
-        return back()->with('success', "{$count} unit diretur ke Gudang Utama");
+        return back()->with('success', "{$count} unit dikembalikan ke Gudang Utama");
+    }
+
+    /**
+     * Correct a unit's SN or MAC typed or scanned wrong (or a MAC never scanned), for any SN-tracked item.
+     * The unit keeps its place and history; only its labels change. An SN or MAC another unit already has is refused.
+     */
+    public function updateSerial(Request $request, SerialUnit $serialUnit): RedirectResponse
+    {
+        $data = $request->validate([
+            'serial_number' => ['required', 'string', 'max:100'],
+            'mac' => ['nullable', 'string', 'max:30'],
+        ], [], ['serial_number' => 'SN', 'mac' => 'MAC']);
+
+        $number = SerialUnit::normalizeSerial($data['serial_number']);
+        $macRaw = trim((string) ($data['mac'] ?? ''));
+        $mac = SerialUnit::normalizeMac($macRaw);
+        $fail = fn (string $message) => back()->withErrors(['serial_edit' => $message])->withInput();
+        if ($number === '') {
+            return $fail('SN tidak boleh kosong');
+        }
+        if ($macRaw !== '' && $mac === null) {
+            return $fail("MAC {$macRaw} tidak valid, harus 12 digit hex (mis. 28:6D:DA:0C:D4:60)");
+        }
+        $taken = SerialUnit::query()->whereKeyNot($serialUnit->id)->with('item')
+            ->where(fn ($q) => $q->where('serial_number', $number)->when($mac, fn ($q) => $q->orWhere('mac', $mac)))->first();
+        if ($taken) {
+            return $fail($taken->serial_number === $number
+                ? "SN {$number} sudah dipakai unit lain ({$taken->item->code}, {$taken->location()})"
+                : "MAC {$taken->formattedMac()} sudah dipakai SN {$taken->serial_number} ({$taken->item->code})");
+        }
+
+        $old = $serialUnit->serial_number;
+        $serialUnit->update(['serial_number' => $number, 'mac' => $mac]);
+
+        return back()->with('success', $old === $number ? "SN {$number} diperbarui" : "SN {$old} diubah menjadi {$number}");
+    }
+
+    /**
+     * The SN units of one item sitting in a warehouse (the main one unless given), oldest first, so the
+     * warehouse can tick which to send instead of scanning each. Units a pending resume claims are left out.
+     */
+    public function availableSerials(Request $request): JsonResponse
+    {
+        $item = $this->inventory->findItem((string) $request->query('item', ''));
+        $warehouse = $request->filled('warehouse') ? Warehouse::query()->findOrFail((int) $request->query('warehouse')) : Warehouse::main();
+
+        return response()->json($item->serialUnits()
+            ->where('warehouse_id', $warehouse->id)
+            ->whereNotIn('id', MaterialRequestLine::query()->pending()->whereNotNull('serial_unit_id')->select('serial_unit_id'))
+            ->orderBy('id')->get(['serial_number', 'mac'])
+            ->map(fn (SerialUnit $unit) => ['sn' => $unit->serial_number, 'mac' => $unit->formattedMac()]));
     }
 
     /**
@@ -185,8 +237,9 @@ class WarehouseController extends Controller
         $item = $this->inventory->findItem($data['item'], 'item');
         $technician = User::query()->findOrFail($data['technician_id']);
         $this->inventory->send($item, $data['quantity'], $technician, $request->user(), $data['notes'] ?? null);
+        $converted = $item->convertsOnSend() ? " (diterima sebagai {$item->sendAs->code} × ".($data['quantity'] * $item->send_ratio)." {$item->sendAs->unit})" : '';
 
-        return back()->with('success', "{$item->code} × {$data['quantity']} dikirim ke {$technician->name}");
+        return back()->with('success', "{$item->code} × {$data['quantity']} {$item->unit} dikirim ke {$technician->name}{$converted}");
     }
 
     public function returnStock(Request $request, Warehouse $warehouse): RedirectResponse
@@ -195,7 +248,7 @@ class WarehouseController extends Controller
         $item = $this->inventory->findItem($data['item'], 'item');
         $this->inventory->returnToMain($item, $data['quantity'], $warehouse, $request->user(), $data['notes'] ?? null);
 
-        return back()->with('success', "{$item->code} × {$data['quantity']} diretur ke Gudang Utama");
+        return back()->with('success', "{$item->code} × {$data['quantity']} dikembalikan ke Gudang Utama");
     }
 
     /**
@@ -250,21 +303,26 @@ class WarehouseController extends Controller
      *
      * @param  Collection<int, Item>  $items
      */
-    private function catalog(Collection $items): array
+    private function catalog(Collection $items, Warehouse $warehouse): array
     {
         $order = ItemCategory::query()->pluck('sort_order', 'id');
 
-        return $items->load('category')
+        // An SN item's stock kept from before it switched to SN moves by quantity, as its own "(TANPA SN)" pick.
+        return $this->inventory->withLooseRows($items->load(['category', 'sendAs'])
             ->sortBy(fn (Item $item) => sprintf('%05d %s', $order[$item->item_category_id] ?? 99999, $item->code))
             ->map(fn (Item $item) => [
                 'code' => $item->code,
                 'name' => $item->name,
                 'unit' => $item->unit,
+                // Sending this item hands the technician `ratio` of the other item per unit.
+                'converts' => $item->convertsOnSend() && $item->sendAs ? ['ratio' => $item->send_ratio, 'unit' => $item->sendAs->unit, 'code' => $item->sendAs->code] : null,
                 'serial' => $item->tracks_serial,
+                // Whether a scan asks for the MAC label too (modems yes, dropcore rolls and poles no).
+                'mac' => $item->tracks_serial && $item->scans_mac,
                 'category' => $item->category?->name ?? 'Tanpa kategori',
                 'icon' => $item->category?->icon ?? 'package',
                 'held' => (int) $item->held,
-            ])->values()->all();
+            ])->values()->all(), $warehouse);
     }
 
     private function serialMatches(Request $request)

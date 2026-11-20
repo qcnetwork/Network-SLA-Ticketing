@@ -7,7 +7,6 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 
 class ItemCategoryController extends Controller
 {
@@ -20,8 +19,8 @@ class ItemCategoryController extends Controller
     }
 
     /**
-     * Turning on "wajib SN" makes every item in the category SN-tracked. An item that still has counted
-     * stock cannot be switched, since those units have no SN, so the change is refused until it is used up or returned.
+     * Turning on "wajib SN" makes every item in the category SN-tracked. Counted stock they already have stays
+     * as "stok lama tanpa SN", used by quantity, while new stock comes in by SN.
      */
     public function update(Request $request, ItemCategory $category): RedirectResponse
     {
@@ -29,11 +28,6 @@ class ItemCategoryController extends Controller
 
         DB::transaction(function () use ($category, $data) {
             if ($data['requires_serial'] && ! $category->requires_serial) {
-                $counted = $category->items()->where('tracks_serial', false)
-                    ->whereHas('stocks', fn ($q) => $q->where('quantity', '>', 0))->orderBy('code')->pluck('code');
-                if ($counted->isNotEmpty()) {
-                    throw ValidationException::withMessages(['category' => "Kategori belum bisa diwajibkan SN: {$counted->take(5)->implode(', ')}".($counted->count() > 5 ? ' dan lainnya' : '').' masih punya stok tanpa SN']);
-                }
                 $category->items()->update(['tracks_serial' => true]);
             }
             $category->update($data);

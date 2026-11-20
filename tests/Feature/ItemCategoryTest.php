@@ -71,22 +71,17 @@ class ItemCategoryTest extends TestCase
         $this->assertTrue($item->fresh()->tracks_serial);
     }
 
-    public function test_counted_stock_cannot_be_moved_into_a_device_category(): void
+    public function test_counted_stock_stays_as_loose_stock_when_an_item_moves_to_sn(): void
     {
         $item = Item::query()->create(['code' => 'MKT001', 'name' => 'MIKROTIK HAP LITE']);
         $this->stockOf($item, 4);
 
+        // The item switches to SN; the 4 units it already counted stay, without SN.
         $this->actingAs($this->warehouse)->put("/gudang/barang/{$item->id}", [
-            'code' => 'MKT001', 'name' => $item->name, 'unit' => 'unit', 'active' => 1, 'item_category_id' => $this->category('Router & Mikrotik')->id,
-        ])->assertSessionHasErrors('tracks_serial');
-        $this->assertNull($item->fresh()->item_category_id);
-
-        // Without stock on hand it may.
-        Stock::query()->where('item_id', $item->id)->update(['quantity' => 0]);
-        $this->put("/gudang/barang/{$item->id}", [
             'code' => 'MKT001', 'name' => $item->name, 'unit' => 'unit', 'active' => 1, 'item_category_id' => $this->category('Router & Mikrotik')->id,
         ])->assertSessionHasNoErrors();
         $this->assertTrue($item->fresh()->tracks_serial);
+        $this->get('/gudang')->assertOk()->assertSee('4 unit stok lama tanpa SN');
     }
 
     public function test_categories_are_managed(): void
@@ -98,12 +93,13 @@ class ItemCategoryTest extends TestCase
         $this->post('/gudang/kategori', ['name' => 'CCTV', 'icon' => 'monitor'])->assertSessionHasErrors('name');
         $this->post('/gudang/kategori', ['name' => 'Lain', 'icon' => 'not-an-icon'])->assertSessionHasErrors('icon');
 
-        // Requiring an SN later turns it on for the category's items, unless one still has counted stock.
+        // Requiring an SN later turns it on for the category's items; counted stock stays as loose stock.
         $cable = $this->category('Kabel');
         $drop = Item::query()->create(['code' => 'KBL001', 'name' => 'DROPCORE 1 CORE', 'item_category_id' => $cable->id]);
         $this->stockOf($drop, 100);
-        $this->put("/gudang/kategori/{$cable->id}", ['name' => 'Kabel', 'icon' => 'spline', 'requires_serial' => 1])->assertSessionHasErrors('category');
-        $this->assertFalse($cable->fresh()->requires_serial);
+        $this->put("/gudang/kategori/{$cable->id}", ['name' => 'Kabel', 'icon' => 'spline', 'requires_serial' => 1])->assertSessionHasNoErrors();
+        $this->assertTrue($cable->fresh()->requires_serial);
+        $this->assertTrue($drop->fresh()->tracks_serial);
 
         $empty = Item::query()->create(['code' => 'CAM001', 'name' => 'KAMERA', 'item_category_id' => $this->category('Alat Kerja')->id]);
         $this->put('/gudang/kategori/'.$this->category('Alat Kerja')->id, ['name' => 'Alat Kerja', 'icon' => 'wrench', 'requires_serial' => 1])->assertSessionHasNoErrors();

@@ -99,7 +99,7 @@
                     <div class="grid gap-3 sm:grid-cols-2">
                         {{-- Devices: scan, and the item is found from its SN. --}}
                         <div>
-                            <label class="label">Scan SN perangkat</label>
+                            <label class="label">Scan SN / barcode</label>
                             <div class="relative">
                                 <i data-lucide="scan-barcode" class="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-slate-400"></i>
                                 <input x-ref="scan" x-model="sn" @keydown.enter.prevent="scan()" :disabled="checking" class="input pl-9 font-mono"
@@ -197,7 +197,7 @@
                     </template>
                     <div x-show="! lines.length" class="px-5 py-12 text-center text-sm text-slate-400">
                         <i data-lucide="shopping-cart" class="mx-auto mb-2 h-8 w-8 text-slate-300"></i>
-                        Scan SN perangkat atau cari material untuk mulai.
+                        Scan SN / barcode atau cari material untuk mulai.
                     </div>
                 </div>
             </section>

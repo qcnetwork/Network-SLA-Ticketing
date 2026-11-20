@@ -21,7 +21,7 @@
     @include('warehouses.partials.summary', ['tiles' => [
         ['Jenis Barang', $summary['kinds'], 'layers', 'indigo', 'di Gudang Utama'],
         ['Total Unit', $summary['units'], 'package', 'emerald', 'semua satuan'],
-        ['Perangkat ber-SN', $summary['serials'], 'scan-barcode', 'violet', 'siap dikirim'],
+        ['Barang ber-SN', $summary['serials'], 'scan-barcode', 'violet', 'siap dikirim'],
         ['Stok Menipis', $lowStock->count(), 'circle-alert', $lowStock->isEmpty() ? 'slate' : 'rose', 'di bawah minimum'],
         ['Menunggu ACC', $materialRequests->count(), 'hourglass', $materialRequests->isEmpty() ? 'slate' : 'amber', 'pengajuan material'],
     ]])
@@ -64,7 +64,7 @@
         <aside class="order-first space-y-6 lg:order-none">
             @if ($canManage)
                 {{-- One panel for everything that moves stock out of or into the main warehouse. --}}
-                <section x-data="{ tab: @js(str_starts_with((string) old('_tab'), 'kirim') ? 'kirim' : 'masuk'), send: @js(old('_tab') === 'kirim-jumlah' ? 'jumlah' : 'sn') }" class="card">
+                <section x-data="{ tab: @js(str_starts_with((string) old('_tab'), 'kirim') ? 'kirim' : 'masuk') }" class="card">
                     <div class="grid grid-cols-2 border-b border-slate-200 text-sm font-semibold">
                         <button type="button" @click="tab = 'masuk'" :class="tab === 'masuk' ? 'border-emerald-600 text-emerald-700 bg-emerald-50/50' : 'border-transparent text-slate-500 hover:text-slate-700'" class="flex items-center justify-center gap-2 rounded-tl-xl border-b-2 px-4 py-3">
                             <i data-lucide="download" class="h-4 w-4"></i>Barang Masuk
@@ -83,9 +83,9 @@
                             </div>
                         @endif
 
-                        {{-- Receive: the item decides whether units are scanned (device) or counted. --}}
+                        {{-- Receive: the item decides whether units are scanned (SN / barcode) or counted. --}}
                         <form x-show="tab === 'masuk'" method="POST" :action="action" class="space-y-4"
-                            x-data="stockForm({ catalog: @js($catalog), serialAction: @js(route('warehouses.receive-serials')), countAction: @js(route('warehouses.receive')), selected: @js(old('_tab') === 'masuk' ? (string) old('item') : '') })">
+                            x-data="stockForm({ catalog: @js($catalog), serialAction: @js(route('warehouses.receive-serials')), countAction: @js(route('warehouses.receive')), selected: @js(old('_tab') === 'masuk' ? (string) old('item') : ''), withLoose: false })">
                             @csrf
                             <input type="hidden" name="_tab" value="masuk">
                             <div>
@@ -99,7 +99,7 @@
                                     <i data-lucide="scan-barcode" class="mt-0.5 h-4 w-4 shrink-0"></i>
                                     <span>Kategori <b x-text="item?.category"></b> dicatat per unit lewat SN, bukan jumlah. Scan banyak unit sekaligus di bawah; SN yang sudah ada di sistem ditolak supaya tidak tercatat dobel.</span>
                                 </div>
-                                <x-serial-scan :query="['new' => 1]" with-mac mac-toggle />
+                                <x-serial-scan :query="['new' => 1]" follow-item />
                             </div>
 
                             <div x-show="item && ! isSerial" x-cloak>
@@ -118,50 +118,86 @@
                             <button class="btn-success w-full" :disabled="! item"><i data-lucide="download" class="h-4 w-4"></i>Simpan Barang Masuk</button>
                         </form>
 
-                        {{-- Send: devices go by scanned SN, everything else by item and quantity. --}}
-                        <div x-show="tab === 'kirim'" x-cloak class="space-y-4">
-                            <div class="grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-xs font-semibold">
-                                <button type="button" @click="send = 'sn'" :class="send === 'sn' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'" class="flex items-center justify-center gap-1.5 rounded-md px-3 py-2">
-                                    <i data-lucide="scan-barcode" class="h-3.5 w-3.5"></i>Perangkat (scan SN)
-                                </button>
-                                <button type="button" @click="send = 'jumlah'" :class="send === 'jumlah' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500'" class="flex items-center justify-center gap-1.5 rounded-md px-3 py-2">
-                                    <i data-lucide="boxes" class="h-3.5 w-3.5"></i>Material (jumlah)
-                                </button>
+                        {{-- Send: pick the item first. An SN item lists its units in the main warehouse to tick (oldest first;
+                             a scanner still works in the search box), anything else asks for a quantity. --}}
+                        <form x-show="tab === 'kirim'" x-cloak method="POST" :action="action" class="space-y-4"
+                            x-data="stockForm({ catalog: @js($catalog), serialAction: @js(route('warehouses.send-serials')), countAction: @js(route('warehouses.send')), selected: @js(old('_tab') === 'kirim' ? (string) old('item') : ''), inStockOnly: true })">
+                            @csrf
+                            <input type="hidden" name="_tab" value="kirim">
+                            @include('warehouses.partials.technician-select', ['selected' => old('_tab') === 'kirim' ? old('technician_id') : null])
+                            <div>
+                                <label class="label">Barang</label>
+                                @include('warehouses.partials.item-picker', ['placeholder' => 'Cari barang yang ada di Gudang Utama'])
                             </div>
 
-                            <form x-show="send === 'sn'" method="POST" action="{{ route('warehouses.send-serials') }}" class="space-y-4">
-                                @csrf
-                                <input type="hidden" name="_tab" value="kirim-sn">
-                                @include('warehouses.partials.technician-select', ['selected' => old('_tab') === 'kirim-sn' ? old('technician_id') : null])
-                                <div class="space-y-2">
-                                    <label class="label">Scan SN perangkat</label>
-                                    <p class="text-xs text-slate-500">Modem, switch, Mikrotik, dll. Hanya SN yang ada di Gudang Utama yang diterima.</p>
-                                    <x-serial-scan :query="['warehouse' => $main->id]" />
+                            {{-- SN item: tick the units to send. --}}
+                            <div x-show="item && isSerial" x-cloak class="space-y-2"
+                                x-data="serialPicker({ url: @js(route('warehouses.available-serials')), warehouse: @js($main->id) })" x-effect="load(item)">
+                                <div class="flex items-center justify-between gap-2">
+                                    <label class="label mb-0">Pilih SN yang dikirim</label>
+                                    <span class="text-xs font-semibold" :class="selected.length ? 'text-indigo-700' : 'text-slate-400'" x-text="`${selected.length} dari ${units.length} dipilih`"></span>
                                 </div>
-                                <input name="notes" class="input" maxlength="255" placeholder="Keterangan (opsional)">
-                                <button class="btn-primary w-full"><i data-lucide="truck" class="h-4 w-4"></i>Kirim Perangkat</button>
-                            </form>
+                                <div class="relative">
+                                    <i data-lucide="scan-barcode" class="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-slate-400"></i>
+                                    <input x-ref="sn" x-model="filter" @keydown.enter.prevent="scan()" @input="error = ''" class="input pl-9 font-mono text-sm" autocomplete="off" spellcheck="false"
+                                        placeholder="Cari SN / MAC, atau scan barcode">
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 text-xs">
+                                    <span class="text-slate-500">Ambil</span>
+                                    <input x-model="take" @keydown.enter.prevent="takeOldest()" type="number" min="1" :max="units.length" class="input w-16 py-1 text-xs" placeholder="0">
+                                    <button type="button" @click="takeOldest()" class="btn-secondary px-2 py-1 text-xs">unit terlama</button>
+                                    <span class="flex-1"></span>
+                                    <button type="button" x-show="filter" @click="selectShown()" class="font-semibold text-indigo-700 hover:underline">Pilih semua hasil cari</button>
+                                    <button type="button" x-show="selected.length" @click="clearAll()" class="font-semibold text-rose-600 hover:underline">Kosongkan</button>
+                                </div>
+                                <p x-show="error" x-cloak x-text="error" class="rounded-lg bg-rose-50 p-2 text-xs font-medium text-rose-700"></p>
+                                <div class="max-h-72 overflow-y-auto rounded-lg border border-slate-200">
+                                    <p x-show="loading" class="px-3 py-4 text-center text-xs text-slate-500">Memuat SN...</p>
+                                    <p x-show="! loading && ! units.length" class="px-3 py-4 text-center text-xs text-slate-400">Tidak ada unit barang ini di Gudang Utama</p>
+                                    <p x-show="! loading && units.length && ! shown.length" class="px-3 py-4 text-center text-xs text-slate-400">Tidak ada SN yang cocok</p>
+                                    <ul class="divide-y divide-slate-100 text-xs">
+                                        <template x-for="unit in shown" :key="unit.sn">
+                                            <li>
+                                                <label class="flex cursor-pointer items-center gap-2.5 px-3 py-2 hover:bg-slate-50" :class="isChecked(unit) && 'bg-indigo-50/70'">
+                                                    <input type="checkbox" :checked="isChecked(unit)" @change="toggle(unit)" class="rounded border-slate-300">
+                                                    <span class="font-mono font-semibold text-slate-800" x-text="unit.sn"></span>
+                                                    <span x-show="unit.mac" class="font-mono text-slate-500" x-text="unit.mac"></span>
+                                                </label>
+                                            </li>
+                                        </template>
+                                    </ul>
+                                </div>
+                                <template x-for="(sn, i) in selected" :key="sn">
+                                    <input type="hidden" :name="`serials[${i}][sn]`" :value="sn">
+                                </template>
+                                <p x-show="item?.converts && selected.length" x-cloak class="flex items-center gap-1.5 text-xs text-indigo-700">
+                                    <i data-lucide="repeat" class="h-3.5 w-3.5"></i>
+                                    <span x-text="item?.converts ? `Teknisi menerima ${selected.length * item.converts.ratio} ${item.converts.unit} ${item.converts.code}` : ''"></span>
+                                </p>
+                                <x-field-error name="serials" />
+                                <input name="notes" class="input" maxlength="255" placeholder="Keterangan (opsional)" :disabled="! isSerial">
+                                <button class="btn-primary w-full" :disabled="! selected.length"><i data-lucide="truck" class="h-4 w-4"></i><span x-text="selected.length ? `Kirim ${selected.length} unit` : 'Pilih SN dulu'"></span></button>
+                            </div>
 
-                            <form x-show="send === 'jumlah'" x-cloak method="POST" :action="action" class="space-y-4"
-                                x-data="stockForm({ catalog: @js($catalog), countAction: @js(route('warehouses.send')), selected: @js(old('_tab') === 'kirim-jumlah' ? (string) old('item') : ''), countedOnly: true, inStockOnly: true })">
-                                @csrf
-                                <input type="hidden" name="_tab" value="kirim-jumlah">
-                                @include('warehouses.partials.technician-select', ['selected' => old('_tab') === 'kirim-jumlah' ? old('technician_id') : null])
+                            {{-- Counted item: a quantity. --}}
+                            <div x-show="item && ! isSerial" x-cloak class="space-y-4">
                                 <div>
-                                    <label class="label">Barang</label>
-                                    @include('warehouses.partials.item-picker', ['placeholder' => 'Cari material yang ada di Gudang Utama'])
-                                </div>
-                                <div x-show="item" x-cloak>
                                     <label class="label" for="send_quantity">Jumlah <span class="font-normal text-slate-400" x-text="`(tersedia ${item?.held ?? 0})`"></span></label>
                                     <div class="flex">
-                                        <input id="send_quantity" x-ref="quantity" name="quantity" type="number" min="1" :max="item?.held" required class="input rounded-r-none" placeholder="0">
+                                        <input id="send_quantity" x-ref="quantity" x-model="quantity" name="quantity" type="number" min="1" :max="item?.held" :required="! isSerial" :disabled="isSerial" class="input rounded-r-none" placeholder="0">
                                         <span class="inline-flex items-center rounded-r-lg border border-l-0 border-slate-300 bg-slate-50 px-3 text-sm text-slate-500" x-text="item?.unit"></span>
                                     </div>
+                                    <p x-show="item?.converts" x-cloak class="mt-1.5 flex items-center gap-1.5 text-xs text-indigo-700">
+                                        <i data-lucide="repeat" class="h-3.5 w-3.5"></i>
+                                        <span x-text="item?.converts ? (Number(quantity) > 0
+                                            ? `Teknisi menerima ${Number(quantity) * item.converts.ratio} ${item.converts.unit} ${item.converts.code}`
+                                            : `1 ${item.unit} = ${item.converts.ratio} ${item.converts.unit} ${item.converts.code} di gudang teknisi`) : ''"></span>
+                                    </p>
                                 </div>
-                                <input name="notes" class="input" maxlength="255" placeholder="Keterangan (opsional)">
-                                <button class="btn-primary w-full" :disabled="! item"><i data-lucide="truck" class="h-4 w-4"></i>Kirim Material</button>
-                            </form>
-                        </div>
+                                <input name="notes" class="input" maxlength="255" placeholder="Keterangan (opsional)" :disabled="isSerial">
+                                <button class="btn-primary w-full"><i data-lucide="truck" class="h-4 w-4"></i>Kirim Material</button>
+                            </div>
+                        </form>
                     </div>
                 </section>
             @endif

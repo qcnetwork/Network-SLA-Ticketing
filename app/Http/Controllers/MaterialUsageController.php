@@ -167,7 +167,7 @@ class MaterialUsageController extends Controller
     {
         $order = ItemCategory::query()->pluck('sort_order', 'id');
 
-        return Item::query()->with('category')
+        $rows = Item::query()->with('category')
             ->addSelect(['items.*', 'held' => Stock::query()->select('quantity')->whereColumn('stocks.item_id', 'items.id')->where('stocks.warehouse_id', $warehouse->id)->limit(1)])
             ->get()
             ->filter(fn (Item $item) => (int) $item->held > 0)
@@ -180,6 +180,9 @@ class MaterialUsageController extends Controller
                 'category' => $item->category?->name ?? 'Tanpa kategori',
                 'held' => (int) $item->held,
             ])->values()->all();
+
+        // Stock an SN item kept from before it switched to SN is used by quantity, as "(TANPA SN)".
+        return $this->inventory->withLooseRows($rows, $warehouse);
     }
 
     /**

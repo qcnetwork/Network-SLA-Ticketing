@@ -90,6 +90,8 @@ Route::middleware('auth')->group(function () {
         Route::post('/gudang/{warehouse}/retur', [WarehouseController::class, 'returnStock'])->name('warehouses.return');
         Route::post('/gudang/masuk-sn', [WarehouseController::class, 'receiveSerials'])->name('warehouses.receive-serials');
         Route::post('/gudang/kirim-sn', [WarehouseController::class, 'sendSerials'])->name('warehouses.send-serials');
+        Route::get('/gudang/unit-sn', [WarehouseController::class, 'availableSerials'])->name('warehouses.available-serials');
+        Route::put('/gudang/unit-sn/{serialUnit}', [WarehouseController::class, 'updateSerial'])->name('warehouses.update-serial');
         Route::post('/gudang/{warehouse}/retur-sn', [WarehouseController::class, 'returnSerials'])->name('warehouses.return-serials');
         Route::post('/gudang/pengajuan/{materialRequest}/setujui', [WarehouseController::class, 'approveRequest'])->name('material-requests.approve');
         Route::post('/gudang/pengajuan/{materialRequest}/tolak', [WarehouseController::class, 'rejectRequest'])->name('material-requests.reject');
@@ -150,6 +152,6 @@ Route::middleware('auth')->group(function () {
         Route::post('/settings/telegram-commands', [SettingController::class, 'enableCommands'])->name('settings.commands');
         Route::put('/settings/sheets', [SettingController::class, 'updateSheets'])->name('settings.sheets');
         Route::post('/settings/sheets-sync', [SettingController::class, 'syncSheets'])->middleware('throttle:5,1')->name('settings.sheets-sync');
-        Route::post('/settings/backup',[SettingController::class, 'backup'])->middleware('throttle:5,1')->name('settings.backup');
+        Route::post('/settings/backup', [SettingController::class, 'backup'])->middleware('throttle:5,1')->name('settings.backup');
     });
 });

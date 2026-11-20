@@ -196,12 +196,13 @@ class TicketController extends Controller
                 .($ticket->isAssignedTo($technician) ? ' · ditugaskan' : '')])
             ->values()->all();
 
+        // Stock an SN item kept from before it switched to SN is reported by quantity, as "(TANPA SN)".
         return ['stockHolders' => $holders, 'crewStock' => $stock
-            ->map(fn ($stocks) => $stocks->map(fn (Stock $stock) => [
+            ->map(fn ($stocks) => $this->inventory->withLooseRows($stocks->map(fn (Stock $stock) => [
                 'code' => $stock->item->code,
                 'name' => $stock->item->name,
                 'serial' => $stock->item->tracks_serial,
-            ])->values()->all())
+            ])->values()->all(), $stocks->first()->warehouse))
             ->all()];
     }
 

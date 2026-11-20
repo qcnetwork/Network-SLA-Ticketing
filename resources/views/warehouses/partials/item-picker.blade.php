@@ -32,6 +32,7 @@
                         </span>
                         <span class="flex shrink-0 items-center gap-1.5 text-xs">
                             <span x-show="match.serial" class="badge border-violet-300 bg-violet-50 text-violet-700">SN</span>
+                            <span x-show="match.loose" class="badge border-amber-300 bg-amber-50 text-amber-700" title="Stok lama dari sebelum barang ini pakai SN">Tanpa SN</span>
                             <span :class="match.held > 0 ? 'text-slate-600' : 'text-slate-400'" x-text="`${match.held} ${match.unit}`"></span>
                         </span>
                     </button>

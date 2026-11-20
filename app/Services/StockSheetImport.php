@@ -43,6 +43,7 @@ class StockSheetImport
                         'min_stock' => $row['min'],
                         'item_category_id' => $category?->id,
                         'tracks_serial' => str_starts_with($row['code'], 'MDM') || (bool) $category?->requires_serial,
+                        'scans_mac' => str_starts_with($row['code'], 'MDM') || (bool) $category?->requires_serial,
                         'active' => true,
                     ])->save();
                     $report['created'][] = $row['code'];

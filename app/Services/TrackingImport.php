@@ -329,7 +329,7 @@ class TrackingImport
                 $created[] = "{$item->code} {$item->name}";
             }
             if (! $item->tracks_serial) {
-                $item->update(['tracks_serial' => true]);
+                $item->update(['tracks_serial' => true, 'scans_mac' => true]);
             }
             if (! $item->item_category_id) {
                 $item->update(['item_category_id' => (ItemCategory::guess($item->code, $item->name) ?? ItemCategory::query()->where('requires_serial', true)->ordered()->first())?->id]);

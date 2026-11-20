@@ -7,8 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * A group of items in the warehouse (modems, switches, cable, connectors...). A device category requires
- * an SN for every unit, so each of its items is received, sent and returned by scanning.
+ * A group of items in the warehouse (modems, switches, cable, poles, connectors...). A category that requires
+ * an SN (devices, but also dropcore rolls or poles with their own barcode) has each of its items received,
+ * sent and returned by scanning. Whether a MAC is scanned too is set per item.
  */
 class ItemCategory extends Model
 {

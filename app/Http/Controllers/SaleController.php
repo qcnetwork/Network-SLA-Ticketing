@@ -68,7 +68,9 @@ class SaleController extends Controller
                 'category' => $item->category?->name ?? 'Tanpa kategori',
                 'held' => (int) $item->held,
                 'price' => $lastPrices[$item->id] ?? null,
-            ])->values();
+            ])->values()->all();
+        // Stock an SN item kept from before it switched to SN is sold by quantity, as "(TANPA SN)".
+        $catalog = $this->inventory->withLooseRows($catalog, $main);
 
         return view('sales.create', [
             'main' => $main,

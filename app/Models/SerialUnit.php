@@ -6,8 +6,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One modem (or other SN-tracked unit). It sits in a warehouse until a repair resume installs it
- * at a customer, which moves it onto that ticket, or until it is sold.
+ * One SN-tracked unit: a modem, a roll of dropcore, a pole... It sits in a warehouse until a repair resume
+ * installs it at a customer (moving it onto that ticket), it is sold, or (a roll set to convert on send) it is
+ * opened into a technician's warehouse as meters of cable.
  */
 class SerialUnit extends Model
 {
@@ -26,6 +27,11 @@ class SerialUnit extends Model
     public function warehouse(): BelongsTo
     {
         return $this->belongsTo(Warehouse::class);
+    }
+
+    public function convertedTo(): BelongsTo
+    {
+        return $this->belongsTo(Warehouse::class, 'converted_to_warehouse_id');
     }
 
     public function ticket(): BelongsTo
@@ -73,6 +79,7 @@ class SerialUnit extends Model
                 $this->ticket !== null => "Terpasang · {$this->ticket->ticket_number}",
                 $this->usage !== null => "Terpakai · {$this->usage->location}",
                 $this->sale !== null => "Terjual · {$this->sale->buyer_name} ({$this->sale->sale_number})",
+                $this->convertedTo !== null => "Dibuka jadi {$this->item->sendAs?->unit} · {$this->convertedTo->name}",
                 $this->condition !== null => "Keluar stok · {$this->condition}",
                 $this->installed_to !== null => "Terpasang · {$this->installed_to}",
                 default => '-',

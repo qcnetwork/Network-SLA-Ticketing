@@ -5,11 +5,13 @@
  *
  * `catalog` rows are {code, name, unit, serial, category, icon, held}. With `countedOnly`, SN items are
  * left out (they move by scanning alone); with `inStockOnly`, items the warehouse does not hold are too.
+ * Rows marked `loose` are an SN item's stock from before it switched to SN, moved by quantity as
+ * "CODE (TANPA SN)"; `withLoose: false` leaves them out (new stock of an SN item always comes in by scan).
  */
 const normalize = (text) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-export default ({ catalog, serialAction = '', countAction = '', selected = '', countedOnly = false, inStockOnly = false }) => ({
-    catalog: catalog.filter((item) => (!countedOnly || !item.serial) && (!inStockOnly || item.held > 0)),
+export default ({ catalog, serialAction = '', countAction = '', selected = '', countedOnly = false, inStockOnly = false, withLoose = true }) => ({
+    catalog: catalog.filter((item) => (!countedOnly || !item.serial) && (!inStockOnly || item.held > 0) && (withLoose || !item.loose)),
     item: null,
     query: '',
     open: false,

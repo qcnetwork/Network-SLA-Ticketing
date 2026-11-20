@@ -29,7 +29,9 @@ class ItemController extends Controller
             'categories' => ItemCategory::query()->ordered()->withCount('items')->get(),
             'uncategorised' => Item::query()->whereNull('item_category_id')->count(),
             'icons' => ItemCategory::ICONS,
-            'items' => Item::query()->with('category')
+            // Counted items a roll-type item can be handed to technicians as (dropcore per meter).
+            'conversionTargets' => Item::query()->where('tracks_serial', false)->where('active', true)->orderBy('code')->get(['id', 'code', 'name', 'unit']),
+            'items' => Item::query()->with(['category', 'sendAs'])
                 ->when($search !== '', fn ($query) => $query->search($search))
                 ->when($category === 'none', fn ($query) => $query->whereNull('item_category_id'))
                 ->when(ctype_digit($category), fn ($query) => $query->where('item_category_id', (int) $category))
@@ -44,7 +46,8 @@ class ItemController extends Controller
     {
         $data = $this->validateItem($request);
         $item = new Item(['active' => true]);
-        $item->fill($data + ['tracks_serial' => $this->tracksSerial($request, $data, $item)])->save();
+        $tracksSerial = $this->tracksSerial($request, $data, $item);
+        $item->fill($data + ['tracks_serial' => $tracksSerial, 'scans_mac' => $tracksSerial && $request->boolean('scans_mac')])->save();
 
         return back()->with('success', "Barang {$data['code']} ditambahkan");
     }
@@ -52,7 +55,13 @@ class ItemController extends Controller
     public function update(Request $request, Item $item): RedirectResponse
     {
         $data = $this->validateItem($request, $item);
-        $item->update($data + ['active' => $request->boolean('active'), 'tracks_serial' => $this->tracksSerial($request, $data, $item)]);
+        $tracksSerial = $this->tracksSerial($request, $data, $item);
+        // A MAC is only scanned after an SN, so it is off for a counted item.
+        $item->update($data + [
+            'active' => $request->boolean('active'),
+            'tracks_serial' => $tracksSerial,
+            'scans_mac' => $tracksSerial && $request->boolean('scans_mac'),
+        ] + $this->conversion($request, $item));
 
         return back()->with('success', "Barang {$item->code} diperbarui");
     }
@@ -110,8 +119,9 @@ class ItemController extends Controller
     }
 
     /**
-     * A device category always tracks SN. Switching an item between counted and SN-tracked is only allowed
-     * while no stock would be left without (or with) an SN it no longer matches.
+     * A category that requires SN always tracks it. An item with counted stock may switch to SN: that stock stays
+     * as "stok lama tanpa SN", still used by quantity, while new stock comes in by SN. Switching back to counted
+     * is refused while units with an SN are still in a warehouse.
      */
     private function tracksSerial(Request $request, array $data, Item $item): bool
     {
@@ -120,14 +130,39 @@ class ItemController extends Controller
         if (! $item->exists || $wanted === $item->tracks_serial) {
             return $wanted;
         }
-        if ($wanted && $item->stocks()->where('quantity', '>', 0)->exists()) {
-            throw ValidationException::withMessages(['tracks_serial' => "{$item->code} masih punya stok tanpa SN. Habiskan atau retur dulu stoknya sebelum diubah menjadi barang ber-SN".($category?->requires_serial ? " (kategori {$category->name} wajib SN)" : '')]);
-        }
         if (! $wanted && $item->serialUnits()->whereNotNull('warehouse_id')->exists()) {
             throw ValidationException::withMessages(['tracks_serial' => "{$item->code} masih punya unit ber-SN di gudang, tidak bisa diubah menjadi barang tanpa SN"]);
         }
 
         return $wanted;
+    }
+
+    /**
+     * "Kirim ke teknisi sebagai": sending one unit of this item hands the technician `send_ratio` of another
+     * counted item (1 roll of dropcore → 1000 meter). Leaving the target empty turns the conversion off.
+     * A changed ratio only applies to later sends; what technicians already hold stays as it is.
+     *
+     * @return array{send_as_item_id: ?int, send_ratio: ?int}
+     */
+    private function conversion(Request $request, Item $item): array
+    {
+        $data = $request->validate([
+            'send_as_item_id' => ['nullable', Rule::exists('items', 'id')->where('tracks_serial', false)],
+            'send_ratio' => ['nullable', 'required_with:send_as_item_id', 'integer', 'min:1', 'max:1000000'],
+        ], [
+            'send_as_item_id.exists' => 'Barang hasil konversi harus barang tanpa SN',
+            'send_ratio.required_with' => 'Isi berapa satuan yang diterima teknisi per 1 '.$item->unit,
+        ], ['send_as_item_id' => 'barang hasil konversi', 'send_ratio' => 'rasio konversi']);
+
+        $target = $data['send_as_item_id'] ?? null;
+        if (! $target) {
+            return ['send_as_item_id' => null, 'send_ratio' => null];
+        }
+        if ((int) $target === $item->id) {
+            throw ValidationException::withMessages(['send_as_item_id' => 'Barang tidak bisa dikonversi menjadi dirinya sendiri']);
+        }
+
+        return ['send_as_item_id' => (int) $target, 'send_ratio' => (int) $data['send_ratio']];
     }
 
     private function validateItem(Request $request, ?Item $item = null): array

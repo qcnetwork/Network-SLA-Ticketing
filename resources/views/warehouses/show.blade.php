@@ -24,7 +24,7 @@
     @include('warehouses.partials.summary', ['tiles' => [
         ['Jenis Barang', $summary['kinds'], 'layers', 'indigo', null],
         ['Total Unit', $summary['units'], 'package', 'emerald', null],
-        ['Perangkat ber-SN', $summary['serials'], 'scan-barcode', 'violet', null],
+        ['Barang ber-SN', $summary['serials'], 'scan-barcode', 'violet', null],
         ['Menunggu ACC', $materialRequests->count(), 'hourglass', $materialRequests->isEmpty() ? 'slate' : 'amber', null],
     ]])
 
@@ -57,7 +57,7 @@
             <aside class="order-first lg:order-none">
                 <section x-data="{ mode: @js(old('_tab') === 'retur-jumlah' ? 'jumlah' : 'sn') }" class="card">
                     <div class="flex items-center gap-2 rounded-t-xl border-b border-slate-200 bg-amber-50/60 px-5 py-3 font-semibold text-amber-800">
-                        <i data-lucide="undo-2" class="h-4 w-4"></i>Retur ke Gudang Utama
+                        <i data-lucide="undo-2" class="h-4 w-4"></i>Kembalikan ke Gudang Utama
                     </div>
                     <div class="space-y-4 p-5">
                         @if ($errors->any())
@@ -69,7 +69,7 @@
                         @endif
                         <div class="grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-xs font-semibold">
                             <button type="button" @click="mode = 'sn'" :class="mode === 'sn' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500'" class="flex items-center justify-center gap-1.5 rounded-md px-3 py-2">
-                                <i data-lucide="scan-barcode" class="h-3.5 w-3.5"></i>Perangkat (scan SN)
+                                <i data-lucide="scan-barcode" class="h-3.5 w-3.5"></i>Per SN (scan barcode)
                             </button>
                             <button type="button" @click="mode = 'jumlah'" :class="mode === 'jumlah' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-500'" class="flex items-center justify-center gap-1.5 rounded-md px-3 py-2">
                                 <i data-lucide="boxes" class="h-3.5 w-3.5"></i>Material (jumlah)
@@ -79,10 +79,10 @@
                         <form x-show="mode === 'sn'" method="POST" action="{{ route('warehouses.return-serials', $warehouse) }}" class="space-y-4">
                             @csrf
                             <input type="hidden" name="_tab" value="retur-sn">
-                            <p class="text-xs text-slate-500">Scan SN perangkat yang dikembalikan {{ $holder }}.</p>
+                            <p class="text-xs text-slate-500">Scan SN / barcode barang yang dikembalikan {{ $holder }} (modem, tiang, dll).</p>
                             <x-serial-scan :query="['warehouse' => $warehouse->id]" />
                             <input name="notes" class="input" maxlength="255" placeholder="Alasan: sisa, rusak, error (opsional)">
-                            <button class="btn-warning w-full"><i data-lucide="undo-2" class="h-4 w-4"></i>Retur Perangkat</button>
+                            <button class="btn-warning w-full"><i data-lucide="undo-2" class="h-4 w-4"></i>Kembalikan Barang ber-SN</button>
                         </form>
 
                         <form x-show="mode === 'jumlah'" x-cloak method="POST" :action="action" class="space-y-4"
@@ -101,7 +101,7 @@
                                 </div>
                             </div>
                             <input name="notes" class="input" maxlength="255" placeholder="Alasan: sisa, rusak (opsional)">
-                            <button class="btn-warning w-full" :disabled="! item"><i data-lucide="undo-2" class="h-4 w-4"></i>Retur Material</button>
+                            <button class="btn-warning w-full" :disabled="! item"><i data-lucide="undo-2" class="h-4 w-4"></i>Kembalikan Material</button>
                         </form>
                     </div>
                 </section>

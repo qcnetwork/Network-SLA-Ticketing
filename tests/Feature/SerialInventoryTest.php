@@ -4,12 +4,15 @@ namespace Tests\Feature;
 
 use App\Enums\Role;
 use App\Enums\TicketStatus;
+use App\Enums\UsagePurpose;
 use App\Models\Item;
+use App\Models\ItemCategory;
 use App\Models\SerialUnit;
 use App\Models\Stock;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Services\InventoryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -132,6 +135,134 @@ class SerialInventoryTest extends TestCase
 
         $this->get("/tickets/{$ticket->ticket_number}")->assertSee('SN SN-A · 28:6D:DA:0C:D4:60');
         $this->get('/gudang?q=SN-A')->assertSee("Terpasang · {$ticket->ticket_number}");
+    }
+
+    public function test_barcoded_rolls_and_poles_move_by_sn_too(): void
+    {
+        $this->actingAs($this->warehouse)->post('/gudang/kategori', ['name' => 'Tiang', 'icon' => 'radio-tower', 'requires_serial' => 1])->assertSessionHasNoErrors();
+        $poles = ItemCategory::query()->where('name', 'Tiang')->sole();
+
+        // Whether a MAC follows the SN is set on the item master: poles carry a barcode, no MAC label.
+        $this->post('/gudang/barang', ['code' => 'TNG7', 'name' => 'TIANG BESI 7M', 'unit' => 'batang', 'item_category_id' => $poles->id])->assertSessionHasNoErrors();
+        $pole = Item::query()->where('code', 'TNG7')->sole();
+        $this->assertTrue($pole->tracks_serial);
+        $this->assertFalse($pole->scans_mac);
+        $this->put("/gudang/barang/{$this->modem->id}", ['code' => 'MDM031', 'name' => $this->modem->name, 'unit' => 'unit', 'tracks_serial' => 1, 'scans_mac' => 1, 'active' => 1])->assertSessionHasNoErrors();
+        $this->assertTrue($this->modem->fresh()->scans_mac);
+        // A counted item never scans a MAC.
+        $this->put("/gudang/barang/{$pole->id}", ['code' => 'TNG7', 'name' => $pole->name, 'unit' => 'batang', 'scans_mac' => 1, 'active' => 1])->assertSessionHasNoErrors();
+        $this->assertFalse($pole->fresh()->tracks_serial);
+        $this->assertFalse($pole->fresh()->scans_mac);
+        $this->get('/gudang/barang')->assertOk()->assertSee('SN + MAC');
+        $this->put("/gudang/barang/{$pole->id}", ['code' => 'TNG7', 'name' => $pole->name, 'unit' => 'batang', 'item_category_id' => $poles->id, 'active' => 1])->assertSessionHasNoErrors();
+        $this->assertTrue($pole->fresh()->tracks_serial);
+
+        $meter = Item::query()->create(['code' => 'DRC-M', 'name' => 'DROPCORE METER', 'unit' => 'meter']);
+        $roll = Item::query()->create(['code' => 'DRC-R', 'name' => 'DROPCORE ROLL', 'unit' => 'roll', 'tracks_serial' => true, 'send_as_item_id' => $meter->id, 'send_ratio' => 1000]);
+
+        $this->post('/gudang/masuk-sn', ['item' => 'TNG7', 'serials' => [['sn' => 'TNG-0001'], ['sn' => 'TNG-0002']]])->assertSessionHasNoErrors();
+        $this->post('/gudang/masuk-sn', ['item' => 'DRC-R', 'serials' => [['sn' => 'ROLL-01'], ['sn' => 'ROLL-02']]])->assertSessionHasNoErrors();
+        $this->get('/gudang')->assertOk()->assertSee('Barang ber-SN')->assertDontSee('Kirim Perangkat');
+
+        $this->post('/gudang/kirim-sn', ['technician_id' => $this->technician->id, 'serials' => [['sn' => 'TNG-0001'], ['sn' => 'ROLL-01']]])->assertSessionHasNoErrors();
+
+        $main = Warehouse::main();
+        $own = Warehouse::of($this->technician);
+        $stock = fn (Warehouse $warehouse, Item $item) => (int) Stock::query()->where('warehouse_id', $warehouse->id)->where('item_id', $item->id)->value('quantity');
+        // The pole is now the technician's, SN and all.
+        $this->assertSame($own->id, SerialUnit::query()->where('serial_number', 'TNG-0001')->value('warehouse_id'));
+        $this->assertSame(1, $stock($own, $pole));
+        // The roll is opened into meters: its SN leaves stock, the technician holds 1000 m.
+        $opened = SerialUnit::query()->where('serial_number', 'ROLL-01')->sole();
+        $this->assertNull($opened->warehouse_id);
+        $this->assertSame("Dibuka jadi meter · {$own->name}", $opened->location());
+        $this->assertSame(1, $stock($main, $roll));
+        $this->assertSame(0, $stock($own, $roll));
+        $this->assertSame(1000, $stock($own, $meter));
+        $this->assertSame(0, $stock($main, $meter));
+
+        // An opened roll can't be scanned again.
+        $this->post('/gudang/kirim-sn', ['technician_id' => $this->technician->id, 'serials' => [['sn' => 'ROLL-01']]])->assertSessionHasErrors('serials');
+    }
+
+    public function test_the_send_form_lists_main_warehouse_units_to_tick(): void
+    {
+        $this->receive([['sn' => 'SNB', 'mac' => '28:6D:DA:0C:D4:61'], ['sn' => 'SNA'], ['sn' => 'SNC']])->assertSessionHasNoErrors();
+        $this->post('/gudang/kirim-sn', ['technician_id' => $this->technician->id, 'serials' => [['sn' => 'SNC']]])->assertSessionHasNoErrors();
+
+        // Oldest first, only what is still in the main warehouse.
+        $this->getJson('/gudang/unit-sn?item=MDM031')->assertOk()
+            ->assertExactJson([['sn' => 'SNB', 'mac' => '28:6D:DA:0C:D4:61'], ['sn' => 'SNA', 'mac' => null]]);
+        $own = Warehouse::of($this->technician);
+        $this->getJson("/gudang/unit-sn?item=MDM031&warehouse={$own->id}")->assertOk()->assertExactJson([['sn' => 'SNC', 'mac' => null]]);
+        $this->get('/gudang')->assertOk()->assertSee('Pilih SN yang dikirim');
+
+        $this->actingAs($this->technician)->getJson('/gudang/unit-sn?item=MDM031')->assertForbidden();
+    }
+
+    public function test_a_wrong_or_missing_sn_and_mac_can_be_corrected(): void
+    {
+        $this->modem->update(['scans_mac' => true]);
+        $this->receive([['sn' => 'SN-TYPO'], ['sn' => 'SN-OTHER', 'mac' => '28:6D:DA:0C:D4:60']])->assertSessionHasNoErrors();
+        $unit = SerialUnit::query()->where('serial_number', 'SN-TYPO')->sole();
+        $this->get('/gudang')->assertOk()->assertSee('1 belum ada MAC')->assertSee('MAC kosong');
+
+        $this->put("/gudang/unit-sn/{$unit->id}", ['serial_number' => ' sn-fixed ', 'mac' => '28-6d-da-0c-d4-61'])
+            ->assertSessionHasNoErrors()->assertSessionHas('success', 'SN SN-TYPO diubah menjadi SN-FIXED');
+        $unit->refresh();
+        $this->assertSame('SN-FIXED', $unit->serial_number);
+        $this->assertSame('286DDA0CD461', $unit->mac);
+        $this->assertSame(Warehouse::main()->id, $unit->warehouse_id);
+
+        // Another unit's SN or MAC, or a malformed MAC, is refused.
+        $this->put("/gudang/unit-sn/{$unit->id}", ['serial_number' => 'SN-OTHER'])->assertSessionHasErrors('serial_edit');
+        $this->put("/gudang/unit-sn/{$unit->id}", ['serial_number' => 'SN-FIXED', 'mac' => '28:6D:DA:0C:D4:60'])->assertSessionHasErrors('serial_edit');
+        $this->put("/gudang/unit-sn/{$unit->id}", ['serial_number' => 'SN-FIXED', 'mac' => '12:34'])->assertSessionHasErrors('serial_edit');
+        // Clearing the MAC is allowed (a unit without a label).
+        $this->put("/gudang/unit-sn/{$unit->id}", ['serial_number' => 'SN-FIXED', 'mac' => ''])->assertSessionHasNoErrors();
+        $this->assertNull($unit->fresh()->mac);
+
+        $this->actingAs($this->technician)->put("/gudang/unit-sn/{$unit->id}", ['serial_number' => 'X'])->assertForbidden();
+    }
+
+    public function test_stock_from_before_an_item_switched_to_sn_is_still_used_by_quantity(): void
+    {
+        $cable = Item::query()->create(['code' => 'KBL-1', 'name' => 'KABEL DROPCORE', 'unit' => 'roll']);
+        $this->actingAs($this->warehouse)->post('/gudang/masuk', ['item' => 'KBL-1', 'quantity' => 5])->assertSessionHasNoErrors();
+        $this->post('/gudang/kirim', ['item' => 'KBL-1', 'quantity' => 3, 'technician_id' => $this->technician->id])->assertSessionHasNoErrors();
+
+        // Switching to SN is allowed with stock on hand: it stays as stock without SN.
+        $this->put("/gudang/barang/{$cable->id}", ['code' => 'KBL-1', 'name' => $cable->name, 'unit' => 'roll', 'tracks_serial' => 1, 'active' => 1])->assertSessionHasNoErrors();
+        $this->assertTrue($cable->fresh()->tracks_serial);
+
+        // New stock only comes in by SN.
+        $this->post('/gudang/masuk', ['item' => 'KBL-1', 'quantity' => 1])->assertSessionHasErrors('item');
+        $this->post('/gudang/masuk-sn', ['item' => 'KBL-1', 'serials' => [['sn' => 'ROLL-NEW']]])->assertSessionHasNoErrors();
+
+        $main = Warehouse::main();
+        $own = Warehouse::of($this->technician);
+        $stock = fn (Warehouse $warehouse) => (int) Stock::query()->where('warehouse_id', $warehouse->id)->where('item_id', $cable->id)->value('quantity');
+        $inventory = app(InventoryService::class);
+        $this->assertSame(2, $inventory->looseAvailable($main, $cable->fresh()));
+        $this->assertSame(3, $inventory->looseAvailable($own, $cable->fresh()));
+        $this->get('/gudang')->assertOk()->assertSee('KBL-1 (TANPA SN)')->assertSee('2 roll stok lama tanpa SN');
+
+        // The old stock still moves by quantity, but never more than what has no SN.
+        $this->post('/gudang/kirim', ['item' => 'KBL-1 (TANPA SN)', 'quantity' => 3, 'technician_id' => $this->technician->id])->assertSessionHasErrors('item');
+        $this->post('/gudang/kirim', ['item' => 'KBL-1 (TANPA SN)', 'quantity' => 2, 'technician_id' => $this->technician->id])->assertSessionHasNoErrors();
+        $this->assertSame(1, $stock($main));
+        $this->assertSame(5, $stock($own));
+        $this->post("/gudang/{$own->id}/retur", ['item' => 'KBL-1 (TANPA SN)', 'quantity' => 1])->assertSessionHasNoErrors();
+        $this->assertSame(4, $stock($own));
+
+        // The technician uses the rest on a job; the SN unit still goes by its SN.
+        $inventory->recordUsage(['purpose' => UsagePurpose::PEMASANGAN_BARU->value, 'location' => 'Jl. Mawar'], [['item' => 'KBL-1 (TANPA SN)', 'quantity' => 4]], $own, $this->warehouse);
+        $this->assertSame(0, $stock($own));
+        // Main holds the SN roll plus the 1 roll returned without SN: only that 1 goes by quantity.
+        $this->assertSame(1, $inventory->looseAvailable($main, $cable->fresh()));
+        $this->post('/gudang/kirim', ['item' => 'KBL-1', 'quantity' => 2, 'technician_id' => $this->technician->id])->assertSessionHasErrors('item');
+        $this->post('/gudang/kirim-sn', ['technician_id' => $this->technician->id, 'serials' => [['sn' => 'ROLL-NEW']]])->assertSessionHasNoErrors();
+        $this->assertSame(0, $inventory->looseAvailable($own, $cable->fresh()));
     }
 
     public function test_only_the_warehouse_team_scans(): void

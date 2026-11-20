@@ -9,6 +9,7 @@ use App\Enums\TicketAction;
 use App\Enums\TicketStatus;
 use App\Models\Item;
 use App\Models\Stock;
+use App\Models\StockMovement;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Warehouse;
@@ -65,6 +66,48 @@ class InventoryTest extends TestCase
 
         $this->get('/gudang')->assertOk()->assertSee('Gudang Utama')->assertSee('Tim Baim')->assertSee('Paket 2 Nov');
         $this->get("/gudang/{$own->id}")->assertOk()->assertSee('ADAPTOR 12 V 1 A');
+    }
+
+    public function test_a_roll_sent_to_a_technician_arrives_as_meters(): void
+    {
+        $roll = Item::query()->create(['code' => 'DRC-R', 'name' => 'DROPCORE FO ROLL', 'unit' => 'roll']);
+        $meter = Item::query()->create(['code' => 'DRC-M', 'name' => 'DROPCORE FO METER', 'unit' => 'meter']);
+        $this->actingAs($this->warehouse);
+
+        // Set on the item's edit form; a target with an SN, itself, or no ratio is refused.
+        $edit = fn (array $fields) => $this->put("/gudang/barang/{$roll->id}", ['code' => 'DRC-R', 'name' => $roll->name, 'unit' => 'roll', 'active' => 1] + $fields);
+        $edit(['send_as_item_id' => $roll->id, 'send_ratio' => 1000])->assertSessionHasErrors('send_as_item_id');
+        $edit(['send_as_item_id' => $meter->id])->assertSessionHasErrors('send_ratio');
+        $edit(['send_as_item_id' => $meter->id, 'send_ratio' => 1000])->assertSessionHasNoErrors();
+        $this->assertSame('1 roll = 1000 meter DRC-M', $roll->fresh()->conversionLabel());
+        $this->get('/gudang/barang')->assertOk()->assertSee('1 roll = 1000 meter DRC-M');
+
+        $this->post('/gudang/masuk', ['item' => 'DRC-R', 'quantity' => 3])->assertSessionHasNoErrors();
+        $this->post('/gudang/kirim', ['item' => 'DRC-R', 'quantity' => 2, 'technician_id' => $this->technician->id])
+            ->assertSessionHasNoErrors()->assertSessionHas('success', fn (string $message) => str_contains($message, 'DRC-M × 2000 meter'));
+
+        $main = Warehouse::main();
+        $own = Warehouse::of($this->technician);
+        $this->assertSame(1, $this->quantity($main, $roll));
+        $this->assertSame(0, $this->quantity($own, $roll));
+        $this->assertSame(2000, $this->quantity($own, $meter));
+        $this->assertSame(0, $this->quantity($main, $meter));
+        $this->assertSame(2, StockMovement::query()->where('type', StockMovementType::KIRIM)->count());
+
+        // Leftover cable comes back as meters, so the main warehouse keeps it beside the full rolls.
+        $this->post("/gudang/{$own->id}/retur", ['item' => 'DRC-M', 'quantity' => 150])->assertSessionHasNoErrors();
+        $this->assertSame(150, $this->quantity($main, $meter));
+        $this->assertSame(1850, $this->quantity($own, $meter));
+
+        // A new ratio only applies from the next send; turning it off sends the roll itself.
+        $edit(['send_as_item_id' => $meter->id, 'send_ratio' => 300])->assertSessionHasNoErrors();
+        $this->post('/gudang/kirim', ['item' => 'DRC-R', 'quantity' => 1, 'technician_id' => $this->technician->id])->assertSessionHasNoErrors();
+        $this->assertSame(2150, $this->quantity($own, $meter));
+        $this->post('/gudang/masuk', ['item' => 'DRC-R', 'quantity' => 1]);
+        $edit(['send_as_item_id' => ''])->assertSessionHasNoErrors();
+        $this->assertNull($roll->fresh()->send_ratio);
+        $this->post('/gudang/kirim', ['item' => 'DRC-R', 'quantity' => 1, 'technician_id' => $this->technician->id])->assertSessionHasNoErrors();
+        $this->assertSame(1, $this->quantity($own, $roll));
     }
 
     public function test_helpdesk_can_carry_stock_and_use_it_on_a_ticket(): void

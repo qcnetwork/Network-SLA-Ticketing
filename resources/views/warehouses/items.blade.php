@@ -7,7 +7,7 @@
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white shadow-sm"><i data-lucide="boxes" class="h-6 w-6"></i></span>
             <div>
                 <h1 class="text-2xl font-bold text-slate-900">Master Barang</h1>
-                <p class="text-sm text-slate-500">Semua jenis barang gudang per kategori. Kategori perangkat (modem, switch, Mikrotik, dll) wajib SN untuk setiap unit.</p>
+                <p class="text-sm text-slate-500">Semua jenis barang gudang per kategori. Kategori yang wajib SN dicatat per unit lewat scan SN / barcode: perangkat (modem, switch, Mikrotik), tapi juga roll dropcore, tiang, dll.</p>
             </div>
         </div>
         <form method="GET" action="{{ route('items.index') }}" class="flex gap-2">
@@ -61,7 +61,7 @@
                                     <input type="hidden" name="_form" value="category">
                                     <input name="name" value="{{ $row->name }}" class="input text-sm" required maxlength="80">
                                     @include('warehouses.partials.icon-select', ['selected' => $row->icon])
-                                    <label class="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" name="requires_serial" value="1" @checked($row->requires_serial) class="rounded border-slate-300">Wajib SN (perangkat)</label>
+                                    <label class="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" name="requires_serial" value="1" @checked($row->requires_serial) class="rounded border-slate-300">Wajib SN / barcode per unit</label>
                                     <button class="btn-primary w-full py-1.5 text-xs"><i data-lucide="save" class="h-3.5 w-3.5"></i>Simpan</button>
                                 </form>
                                 <form method="POST" action="{{ route('item-categories.destroy', $row) }}" data-confirm="Hapus kategori {{ $row->name }}?">
@@ -88,7 +88,7 @@
                     <p class="text-xs font-semibold text-slate-600">Kategori baru</p>
                     <input name="name" class="input text-sm" required maxlength="80" placeholder="mis. CCTV" value="{{ old('_form') === 'category' ? old('name') : '' }}">
                     @include('warehouses.partials.icon-select', ['selected' => 'package'])
-                    <label class="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" name="requires_serial" value="1" class="rounded border-slate-300">Wajib SN (perangkat)</label>
+                    <label class="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" name="requires_serial" value="1" class="rounded border-slate-300">Wajib SN / barcode per unit</label>
                     <button class="btn-secondary w-full py-1.5 text-xs"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Tambah Kategori</button>
                 </form>
                 @if ($errors->has('category') || old('_form') === 'category')
@@ -152,7 +152,13 @@
                             :class="serialCategories.includes(Number(category)) ? 'border-violet-300 bg-violet-50 text-violet-800' : ''">
                             <input type="checkbox" name="tracks_serial" value="1" @change="serial = $event.target.checked" :disabled="serialCategories.includes(Number(category))"
                                 :checked="serial || serialCategories.includes(Number(category))" class="rounded border-slate-300">
-                            <span x-text="serialCategories.includes(Number(category)) ? 'Wajib SN (kategori perangkat)' : 'Lacak per SN'"></span>
+                            <span x-text="serialCategories.includes(Number(category)) ? 'Wajib SN (diatur kategori)' : 'Lacak per SN'"></span>
+                        </label>
+                    </div>
+                    <div x-show="serial || serialCategories.includes(Number(category))" x-cloak class="sm:col-span-6">
+                        <label class="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-2.5 text-sm text-slate-700">
+                            <input type="checkbox" name="scans_mac" value="1" @checked(old('scans_mac')) class="rounded border-slate-300">
+                            <span>Scan MAC juga setelah SN <span class="text-xs text-slate-500">(modem, router, switch. Kosongkan untuk roll dropcore, tiang, dll yang cukup barcode)</span></span>
                         </label>
                     </div>
                     <div class="sm:col-span-6">
@@ -170,6 +176,8 @@
             </details>
 
             <x-field-error name="tracks_serial" />
+            <x-field-error name="send_as_item_id" />
+            <x-field-error name="send_ratio" />
             <x-field-error name="item" />
 
             <section class="card overflow-x-auto">
@@ -203,7 +211,10 @@
                                 <td class="px-4 py-3">
                                     <div class="flex flex-wrap gap-1">
                                         @if ($item->tracks_serial)
-                                            <span class="badge border-violet-300 bg-violet-50 text-violet-700">SN</span>
+                                            <span class="badge border-violet-300 bg-violet-50 text-violet-700">{{ $item->scans_mac ? 'SN + MAC' : 'SN' }}</span>
+                                        @endif
+                                        @if ($item->conversionLabel())
+                                            <span class="badge border-indigo-300 bg-indigo-50 text-indigo-700" title="Dikirim ke teknisi sebagai {{ $item->sendAs->name }}">{{ $item->conversionLabel() }}</span>
                                         @endif
                                         @unless ($item->active)
                                             <span class="badge border-slate-300 bg-slate-100 text-slate-500">Nonaktif</span>
@@ -246,7 +257,29 @@
                                                 <input type="checkbox" name="tracks_serial" value="1" @change="serial = $event.target.checked" :disabled="serialCategories.includes(Number(category))"
                                                     :checked="serial || serialCategories.includes(Number(category))" class="rounded border-slate-300">Pakai SN
                                             </label>
+                                            <label x-show="serial || serialCategories.includes(Number(category))" class="flex items-center gap-1.5 pb-2 text-xs" title="Saat Barang Masuk, setiap SN diikuti scan label MAC">
+                                                <input type="checkbox" name="scans_mac" value="1" @checked($item->scans_mac) class="rounded border-slate-300">Scan MAC setelah SN
+                                            </label>
                                             <label class="flex items-center gap-1.5 pb-2 text-xs"><input type="checkbox" name="active" value="1" @checked($item->active) class="rounded border-slate-300">Aktif</label>
+                                        </div>
+                                        {{-- A roll of dropcore can reach the technician as meters of the per-meter item. --}}
+                                        <div class="grid gap-3 rounded-lg border border-indigo-100 bg-white p-3 sm:col-span-6 sm:grid-cols-6">
+                                            <p class="flex items-center gap-1.5 text-xs font-semibold text-indigo-700 sm:col-span-6"><i data-lucide="repeat" class="h-3.5 w-3.5"></i>Konversi saat dikirim ke teknisi</p>
+                                            <div class="sm:col-span-4">
+                                                <label class="label text-xs">Teknisi menerima barang</label>
+                                                <select name="send_as_item_id" class="input text-sm">
+                                                    <option value="">Tidak dikonversi (barang yang sama)</option>
+                                                    @foreach ($conversionTargets as $target)
+                                                        @continue($target->id === $item->id)
+                                                        <option value="{{ $target->id }}" @selected($item->send_as_item_id === $target->id)>{{ $target->code }} · {{ $target->name }} ({{ $target->unit }})</option>
+                                                    @endforeach
+                                                </select>
+                                            </div>
+                                            <div class="sm:col-span-2">
+                                                <label class="label text-xs">Isi per 1 {{ $item->unit }}</label>
+                                                <input name="send_ratio" type="number" min="1" value="{{ $item->send_ratio }}" class="input text-sm" placeholder="mis. 1000">
+                                            </div>
+                                            <p class="text-xs text-slate-500 sm:col-span-6">Contoh: kirim 1 roll dropcore → gudang utama berkurang 1 roll, teknisi bertambah 1000 meter di barang dropcore per meter. Roll ber-SN tetap discan per roll saat dikirim. Rasio yang diubah hanya berlaku untuk kiriman berikutnya.</p>
                                         </div>
                                         <div class="flex items-end gap-2 sm:col-span-2 sm:justify-end">
                                             <button type="button" @click="editing = false" class="btn-secondary px-3 py-1.5 text-xs">Batal</button>

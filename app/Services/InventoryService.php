@@ -61,23 +61,48 @@ class InventoryService
         });
     }
 
+    /**
+     * Hand counted stock to a technician. An item set to convert on send (a roll of dropcore) leaves the main
+     * warehouse in its own unit and lands in the technician's warehouse as the other item (meters of dropcore),
+     * recorded as two KIRIM rows, one per item, so each item's history shows the hand-over.
+     */
     public function send(Item $item, int $quantity, User $technician, User $actor, ?string $notes = null): StockMovement
     {
-        $this->ensureCounted($item, 'item');
+        return DB::transaction(function () use ($item, $quantity, $technician, $actor, $notes) {
+            $main = Warehouse::main();
+            $own = Warehouse::of($technician);
+            // An SN item sends by quantity only from the stock it had before it switched to SN.
+            if ($item->tracks_serial) {
+                $this->ensureLoose($main, $item, $quantity, 'item');
+            }
+            if (! $item->convertsOnSend()) {
+                return $this->move(StockMovementType::KIRIM, $item, $quantity, $main, $own, $actor, $notes);
+            }
 
-        return DB::transaction(fn () => $this->move(StockMovementType::KIRIM, $item, $quantity, Warehouse::main(), Warehouse::of($technician), $actor, $notes));
+            $target = $this->conversionTarget($item, 'item');
+            $received = $quantity * $item->send_ratio;
+            $with = fn (string $line) => $notes ? "{$line} · {$notes}" : $line;
+
+            $movement = $this->move(StockMovementType::KIRIM, $item, $quantity, $main, $own, $actor,
+                $with("Diterima teknisi sebagai {$received} {$target->unit} {$target->code}"), give: false);
+            $this->move(StockMovementType::KIRIM, $target, $received, $main, $own, $actor,
+                $with("Konversi dari {$quantity} {$item->unit} {$item->code}"), take: false);
+
+            return $movement;
+        });
     }
 
     public function returnToMain(Item $item, int $quantity, Warehouse $from, User $actor, ?string $notes = null): StockMovement
     {
-        $this->ensureCounted($item, 'item');
         if ($from->isMain()) {
             throw ValidationException::withMessages(['warehouse_id' => 'Retur hanya dari gudang teknisi']);
         }
 
         return DB::transaction(function () use ($item, $quantity, $from, $actor, $notes) {
             // Stock a pending resume claims stays with the technician until the warehouse decides on it.
-            $this->ensureAvailable($from, $item, $quantity, 'quantity');
+            $item->tracks_serial
+                ? $this->ensureLoose($from, $item, $quantity, 'quantity')
+                : $this->ensureAvailable($from, $item, $quantity, 'quantity');
 
             return $this->move(StockMovementType::RETUR, $item, $quantity, $from, Warehouse::main(), $actor, $notes);
         });
@@ -136,7 +161,7 @@ class InventoryService
      */
     public function sendSerials(array $serials, User $technician, User $actor, ?string $notes = null): int
     {
-        return DB::transaction(fn () => $this->moveSerials(StockMovementType::KIRIM, $serials, Warehouse::main(), Warehouse::of($technician), $actor, $notes));
+        return DB::transaction(fn () => $this->moveSerials(StockMovementType::KIRIM, $serials, Warehouse::main(), Warehouse::of($technician), $actor, $notes, convert: true));
     }
 
     /**
@@ -180,8 +205,9 @@ class InventoryService
                 $notes = trim((string) ($line['notes'] ?? '')) ?: null;
                 $serial = null;
 
-                if ($item->tracks_serial) {
-                    $serial = $this->unitIn(SerialUnit::normalizeSerial($line['serial'] ?? ''), $warehouse, 'materials', $item);
+                $number = SerialUnit::normalizeSerial($line['serial'] ?? '');
+                if ($item->tracks_serial && $number !== '') {
+                    $serial = $this->unitIn($number, $warehouse, 'materials', $item);
                     $this->ensureNotRequested($serial, 'materials');
                     $quantity = 1;
                 } else {
@@ -189,7 +215,9 @@ class InventoryService
                     if ($quantity < 1) {
                         throw ValidationException::withMessages(['materials' => "Jumlah {$item->code} minimal 1"]);
                     }
-                    $this->ensureAvailable($warehouse, $item, $quantity, 'materials', showLeft: false);
+                    $item->tracks_serial
+                        ? $this->ensureLoose($warehouse, $item, $quantity, 'materials')
+                        : $this->ensureAvailable($warehouse, $item, $quantity, 'materials', showLeft: false);
                 }
 
                 return $request->lines()->create([
@@ -340,11 +368,8 @@ class InventoryService
                     throw ValidationException::withMessages(['lines' => "Isi harga jual {$item->code}"]);
                 }
 
-                if ($item->tracks_serial) {
-                    $serials = collect($line['serials'] ?? [])->map(fn ($sn) => SerialUnit::normalizeSerial($sn))->filter()->unique()->values();
-                    if ($serials->isEmpty()) {
-                        throw ValidationException::withMessages(['lines' => "Scan SN {$item->code} yang dijual"]);
-                    }
+                $serials = collect($line['serials'] ?? [])->map(fn ($sn) => SerialUnit::normalizeSerial($sn))->filter()->unique()->values();
+                if ($item->tracks_serial && $serials->isNotEmpty()) {
                     foreach ($serials as $number) {
                         $serial = $this->unitIn($number, $main, 'lines', $item);
                         $this->move(StockMovementType::JUAL, $item, 1, $main, null, $actor, $movementNote, serial: $serial, sale: $record);
@@ -354,7 +379,10 @@ class InventoryService
                 } else {
                     $quantity = (int) ($line['quantity'] ?? 0);
                     if ($quantity < 1) {
-                        throw ValidationException::withMessages(['lines' => "Jumlah {$item->code} minimal 1"]);
+                        throw ValidationException::withMessages(['lines' => $item->tracks_serial ? "Scan SN {$item->code} yang dijual" : "Jumlah {$item->code} minimal 1"]);
+                    }
+                    if ($item->tracks_serial) {
+                        $this->ensureLoose($main, $item, $quantity, 'lines');
                     }
                     try {
                         $this->move(StockMovementType::JUAL, $item, $quantity, $main, null, $actor, $movementNote, sale: $record);
@@ -405,11 +433,8 @@ class InventoryService
                 $item = $this->findItem($line['item'], 'lines');
                 $notes = $text($line['notes'] ?? null, 255);
 
-                if ($item->tracks_serial) {
-                    $serials = collect($line['serials'] ?? [])->map(fn ($sn) => SerialUnit::normalizeSerial($sn))->filter()->unique()->values();
-                    if ($serials->isEmpty()) {
-                        throw ValidationException::withMessages(['lines' => "Scan SN {$item->code} yang dipakai"]);
-                    }
+                $serials = collect($line['serials'] ?? [])->map(fn ($sn) => SerialUnit::normalizeSerial($sn))->filter()->unique()->values();
+                if ($item->tracks_serial && $serials->isNotEmpty()) {
                     foreach ($serials as $number) {
                         $serial = $this->unitIn($number, $source, 'lines', $item);
                         $this->ensureNotRequested($serial, 'lines');
@@ -427,10 +452,12 @@ class InventoryService
 
                 $quantity = (int) ($line['quantity'] ?? 0);
                 if ($quantity < 1) {
-                    throw ValidationException::withMessages(['lines' => "Jumlah {$item->code} minimal 1"]);
+                    throw ValidationException::withMessages(['lines' => $item->tracks_serial ? "Scan SN {$item->code} yang dipakai" : "Jumlah {$item->code} minimal 1"]);
                 }
                 // Stock a pending resume already claims is not free to use again.
-                $this->ensureAvailable($source, $item, $quantity, 'lines');
+                $item->tracks_serial
+                    ? $this->ensureLoose($source, $item, $quantity, 'lines')
+                    : $this->ensureAvailable($source, $item, $quantity, 'lines');
                 $this->move(StockMovementType::PAKAI, $item, $quantity, $source, null, $actor, $movementNote, usage: $usage);
                 $usage->lines()->create([
                     'item_id' => $item->id, 'item_name' => $item->name, 'warehouse_id' => $source->id,
@@ -492,7 +519,7 @@ class InventoryService
      */
     public function findItem(string $code, string $field = 'item'): Item
     {
-        $code = strtoupper(trim(explode('·', $code)[0]));
+        $code = Item::stripLooseMark(strtoupper(trim(explode('·', $code)[0])));
 
         return Item::query()->where('code', $code)->first()
             ?? throw ValidationException::withMessages([$field => "Kode barang {$code} tidak ditemukan"]);
@@ -524,6 +551,8 @@ class InventoryService
                     $category = ItemCategory::guess($code, $name);
                     $item->item_category_id = $category?->id;
                     $item->tracks_serial = str_starts_with($code, 'MDM') || (bool) $category?->requires_serial;
+                    // Items guessed into an SN category are devices from the code list, scanned with their MAC.
+                    $item->scans_mac = $item->tracks_serial;
                 }
                 $item->fill(['name' => mb_substr($name, 0, 150)])->save();
             }
@@ -589,6 +618,70 @@ class InventoryService
         }
     }
 
+    /**
+     * Stock of an SN item in a warehouse that has no SN: what it held before the item switched to SN (e.g. cable
+     * already with technicians). It is counted, not scanned, and is what is left once the units with an SN and
+     * the loose quantity a pending resume claims are taken out.
+     */
+    public function looseAvailable(Warehouse $warehouse, Item $item): int
+    {
+        if (! $item->tracks_serial) {
+            return 0;
+        }
+        $units = SerialUnit::query()->where('warehouse_id', $warehouse->id)->where('item_id', $item->id)->count();
+        $claimed = (int) MaterialRequestLine::query()->pending()->where('warehouse_id', $warehouse->id)->where('item_id', $item->id)
+            ->whereNull('serial_unit_id')->sum('quantity');
+
+        return max(0, $this->stockQuantity($warehouse, $item) - $units - $claimed);
+    }
+
+    /**
+     * Add a "(TANPA SN)" pick after each SN item in a stock picker whose warehouse still holds loose stock of it,
+     * so that stock can be used by quantity. Rows are {code, serial, ...} with an optional `held`, which for the
+     * SN row then counts only its units.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    public function withLooseRows(array $rows, Warehouse $warehouse): array
+    {
+        $serialCodes = collect($rows)->where('serial', true)->pluck('code');
+        if ($serialCodes->isEmpty()) {
+            return $rows;
+        }
+        $items = Item::query()->whereIn('code', $serialCodes)->get()->keyBy('code');
+        $out = [];
+        foreach ($rows as $row) {
+            $loose = ($row['serial'] ?? false) && isset($items[$row['code']]) ? $this->looseAvailable($warehouse, $items[$row['code']]) : 0;
+            if ($loose > 0 && array_key_exists('held', $row)) {
+                $row['held'] = max(0, (int) $row['held'] - $loose);
+            }
+            $out[] = $row;
+            if ($loose > 0) {
+                $out[] = ['code' => Item::looseCode($row['code']), 'serial' => false, 'mac' => false, 'loose' => true]
+                    + (array_key_exists('held', $row) ? ['held' => $loose] : [])
+                    + $row;
+            }
+        }
+
+        return $out;
+    }
+
+    private function ensureLoose(Warehouse $warehouse, Item $item, int $quantity, string $field): void
+    {
+        $free = $this->looseAvailable($warehouse, $item);
+        if ($free < $quantity) {
+            throw ValidationException::withMessages([$field => $free === 0
+                ? "{$item->code} memakai SN, pilih atau scan SN-nya"
+                : "Stok {$item->code} tanpa SN di {$warehouse->name} tinggal {$free} {$item->unit}"]);
+        }
+    }
+
+    private function stockQuantity(Warehouse $warehouse, Item $item): int
+    {
+        return (int) Stock::query()->where('warehouse_id', $warehouse->id)->where('item_id', $item->id)->value('quantity');
+    }
+
     private function ensureNotRequested(SerialUnit $serial, string $field): void
     {
         $line = MaterialRequestLine::query()->pending()->where('serial_unit_id', $serial->id)->with('request.ticket')->first();
@@ -598,9 +691,12 @@ class InventoryService
     }
 
     /**
+     * With `convert` (a send to a technician), a unit whose item converts on send (a barcoded roll of dropcore)
+     * is opened into the technician's warehouse as meters of the target item: the roll's SN leaves stock.
+     *
      * @param  array<string>  $serials
      */
-    private function moveSerials(StockMovementType $type, array $serials, Warehouse $from, Warehouse $to, User $actor, ?string $notes): int
+    private function moveSerials(StockMovementType $type, array $serials, Warehouse $from, Warehouse $to, User $actor, ?string $notes, bool $convert = false): int
     {
         $serials = collect($serials)->map(fn ($serial) => SerialUnit::normalizeSerial($serial))->filter()->unique()->values();
         if ($serials->isEmpty()) {
@@ -609,11 +705,31 @@ class InventoryService
         foreach ($serials as $number) {
             $serial = $this->unitIn($number, $from, 'serials');
             $this->ensureNotRequested($serial, 'serials');
-            $this->move($type, $serial->item, 1, $from, $to, $actor, $notes, serial: $serial);
+            $item = $serial->item;
+            if ($convert && $item->convertsOnSend()) {
+                $target = $this->conversionTarget($item, 'serials');
+                $with = fn (string $line) => $notes ? "{$line} · {$notes}" : $line;
+                $this->move($type, $item, 1, $from, $to, $actor, $with("Dibuka teknisi jadi {$item->send_ratio} {$target->unit} {$target->code}"), serial: $serial, give: false);
+                $this->move($type, $target, $item->send_ratio, $from, $to, $actor, $with("Konversi dari SN {$serial->serial_number} ({$item->code})"), take: false);
+                $serial->update(['warehouse_id' => null, 'converted_to_warehouse_id' => $to->id]);
+
+                continue;
+            }
+            $this->move($type, $item, 1, $from, $to, $actor, $notes, serial: $serial);
             $serial->update(['warehouse_id' => $to->id]);
         }
 
         return $serials->count();
+    }
+
+    private function conversionTarget(Item $item, string $field): Item
+    {
+        $target = $item->sendAs;
+        if (! $target || $target->tracks_serial) {
+            throw ValidationException::withMessages([$field => "Konversi {$item->code} tidak valid, cek pengaturannya di Jenis Barang"]);
+        }
+
+        return $target;
     }
 
     /**
@@ -643,9 +759,13 @@ class InventoryService
         }
     }
 
-    private function move(StockMovementType $type, Item $item, int $quantity, ?Warehouse $from, ?Warehouse $to, User $actor, ?string $notes, ?Ticket $ticket = null, ?SerialUnit $serial = null, ?Sale $sale = null, ?MaterialUsage $usage = null): StockMovement
+    /**
+     * Record a movement and apply it to stock. A converted send records both rows from main to the technician,
+     * but only takes the source item from main ($give false) and only gives the target item to the technician ($take false).
+     */
+    private function move(StockMovementType $type, Item $item, int $quantity, ?Warehouse $from, ?Warehouse $to, User $actor, ?string $notes, ?Ticket $ticket = null, ?SerialUnit $serial = null, ?Sale $sale = null, ?MaterialUsage $usage = null, bool $take = true, bool $give = true): StockMovement
     {
-        if ($from) {
+        if ($from && $take) {
             $stock = $this->stock($from, $item);
             if ($stock->quantity < $quantity) {
                 throw ValidationException::withMessages([
@@ -654,7 +774,7 @@ class InventoryService
             }
             $stock->decrement('quantity', $quantity);
         }
-        if ($to) {
+        if ($to && $give) {
             $this->stock($to, $item)->increment('quantity', $quantity);
         }
 
