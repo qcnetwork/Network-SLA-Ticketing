@@ -7,21 +7,35 @@
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white shadow-sm"><i data-lucide="boxes" class="h-6 w-6"></i></span>
             <div>
                 <h1 class="text-2xl font-bold text-slate-900">Master Barang</h1>
-                <p class="text-sm text-slate-500">Semua jenis barang gudang per kategori. Kategori yang wajib SN dicatat per unit lewat scan SN / barcode: perangkat (modem, switch, Mikrotik), tapi juga roll dropcore, tiang, dll.</p>
+                <p class="text-sm text-slate-500">Barang dikelompokkan kategori → jenis → merk, dan setiap model punya kode sendiri. Penanda unit menentukan apakah barang dihitung jumlah, discan SN, atau SN + MAC.</p>
             </div>
         </div>
         <form method="GET" action="{{ route('items.index') }}" class="flex gap-2">
             @if ($category !== '')
                 <input type="hidden" name="kategori" value="{{ $category }}">
             @endif
-            <input type="search" name="q" value="{{ $search }}" class="input md:w-72" placeholder="Cari kode atau nama barang">
+            @if ($kind !== '')
+                <input type="hidden" name="sifat" value="{{ $kind }}">
+            @endif
+            <input type="search" name="q" value="{{ $search }}" class="input md:w-72" placeholder="Cari kode, nama, jenis, atau merk">
             <button class="btn-secondary"><i data-lucide="search" class="h-4 w-4"></i>Cari</button>
         </form>
     </div>
 
-    @php
-        $serialCategories = $categories->where('requires_serial', true)->pluck('id')->all();
-    @endphp
+    {{-- Suggestions shared by every item form: units, brands, and each category's jenis. --}}
+    <datalist id="unit_options"><option value="pcs"><option value="unit"><option value="meter"><option value="roll"><option value="batang"><option value="box"><option value="pack"></datalist>
+    <datalist id="brand_options">
+        @foreach ($brands as $brand)
+            <option value="{{ $brand }}">
+        @endforeach
+    </datalist>
+    @foreach ($variantsByCategory as $categoryId => $variants)
+        <datalist id="variants-{{ $categoryId }}">
+            @foreach ($variants as $variant)
+                <option value="{{ $variant }}">
+            @endforeach
+        </datalist>
+    @endforeach
 
     <div class="grid gap-6 lg:grid-cols-4">
         {{-- Categories: filter the list, and manage them in place. --}}
@@ -32,7 +46,7 @@
                     <button type="button" @click="manage = ! manage" class="text-xs font-semibold text-indigo-700 hover:underline" x-text="manage ? 'Selesai' : 'Kelola'"></button>
                 </div>
                 @php
-                    $link = fn (?string $value) => route('items.index', array_filter(['kategori' => $value, 'q' => $search !== '' ? $search : null]));
+                    $link = fn (?string $value) => route('items.index', array_filter(['kategori' => $value, 'sifat' => $kind !== '' ? $kind : null, 'q' => $search !== '' ? $search : null]));
                 @endphp
                 <nav class="p-2 text-sm">
                     <a href="{{ $link(null) }}" class="flex items-center justify-between rounded-lg px-3 py-2 {{ $category === '' ? 'bg-indigo-50 font-semibold text-indigo-700' : 'text-slate-600 hover:bg-slate-50' }}">
@@ -61,6 +75,14 @@
                                     <input type="hidden" name="_form" value="category">
                                     <input name="name" value="{{ $row->name }}" class="input text-sm" required maxlength="80">
                                     @include('warehouses.partials.icon-select', ['selected' => $row->icon])
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <input name="code_prefix" value="{{ $row->code_prefix }}" class="input font-mono text-sm uppercase" maxlength="10" placeholder="Awalan kode" title="Awalan kode barang baru, mis. MDM">
+                                        <select name="kind" class="input text-sm" title="Sifat barang baru di kategori ini">
+                                            @foreach (App\Enums\ItemKind::cases() as $case)
+                                                <option value="{{ $case->value }}" @selected($row->kind === $case)>{{ $case->label() }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
                                     <label class="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" name="requires_serial" value="1" @checked($row->requires_serial) class="rounded border-slate-300">Wajib SN / barcode per unit</label>
                                     <button class="btn-primary w-full py-1.5 text-xs"><i data-lucide="save" class="h-3.5 w-3.5"></i>Simpan</button>
                                 </form>
@@ -88,6 +110,14 @@
                     <p class="text-xs font-semibold text-slate-600">Kategori baru</p>
                     <input name="name" class="input text-sm" required maxlength="80" placeholder="mis. CCTV" value="{{ old('_form') === 'category' ? old('name') : '' }}">
                     @include('warehouses.partials.icon-select', ['selected' => 'package'])
+                    <div class="grid grid-cols-2 gap-2">
+                        <input name="code_prefix" class="input font-mono text-sm uppercase" maxlength="10" placeholder="Awalan kode" title="Awalan kode barang baru, mis. TNG">
+                        <select name="kind" class="input text-sm" title="Sifat barang baru di kategori ini">
+                            @foreach (App\Enums\ItemKind::cases() as $case)
+                                <option value="{{ $case->value }}">{{ $case->label() }}</option>
+                            @endforeach
+                        </select>
+                    </div>
                     <label class="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" name="requires_serial" value="1" class="rounded border-slate-300">Wajib SN / barcode per unit</label>
                     <button class="btn-secondary w-full py-1.5 text-xs"><i data-lucide="plus" class="h-3.5 w-3.5"></i>Tambah Kategori</button>
                 </form>
@@ -96,6 +126,7 @@
                         <x-field-error name="category" />
                         <x-field-error name="name" />
                         <x-field-error name="icon" />
+                        <x-field-error name="code_prefix" />
                     </div>
                 @endif
             </section>
@@ -111,69 +142,42 @@
         </aside>
 
         <div class="space-y-6 lg:col-span-3">
-            {{-- New item: a device category ticks (and locks) "pakai SN". --}}
-            <details class="card group" @if ($errors->hasAny(['code', 'unit', 'item_category_id', 'min_stock']) || old('_form') === 'item') open @endif>
+            {{-- New item: category first, then jenis, merk and the model; the code fills itself from the category. --}}
+            <details class="card group" @if ($errors->hasAny(['code', 'unit', 'item_category_id', 'min_stock', 'variant', 'brand', 'kind', 'identifier']) || old('_form') === 'item') open @endif>
                 <summary class="flex cursor-pointer list-none items-center justify-between p-5">
                     <span class="flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="plus-circle" class="h-4 w-4 text-indigo-600"></i>Tambah Barang</span>
                     <i data-lucide="chevron-down" class="h-4 w-4 text-slate-400 transition group-open:rotate-180"></i>
                 </summary>
-                <form method="POST" action="{{ route('items.store') }}" class="grid gap-3 border-t border-slate-100 p-5 sm:grid-cols-6"
-                    x-data="{ serialCategories: @js($serialCategories), category: @js((string) old('item_category_id', ctype_digit($category) ? $category : '')), serial: @js((bool) old('tracks_serial')) }">
+                <form method="POST" action="{{ route('items.store') }}" class="space-y-3 border-t border-slate-100 p-5">
                     @csrf
                     <input type="hidden" name="_form" value="item">
-                    <div class="sm:col-span-2">
-                        <label class="label">Kategori</label>
-                        <select name="item_category_id" x-model="category" class="input">
-                            <option value="">Tanpa kategori</option>
-                            @foreach ($categories as $row)
-                                <option value="{{ $row->id }}">{{ $row->name }}{{ $row->requires_serial ? ' (wajib SN)' : '' }}</option>
-                            @endforeach
-                        </select>
-                    </div>
-                    <div class="sm:col-span-1">
-                        <label class="label">Kode</label>
-                        <input name="code" class="input font-mono uppercase" required maxlength="30" placeholder="SWT001" value="{{ old('_form') === 'item' ? old('code') : '' }}">
-                    </div>
-                    <div class="sm:col-span-3">
-                        <label class="label">Nama barang</label>
-                        <input name="name" class="input" required maxlength="150" placeholder="mis. SWITCH TP-LINK 8 PORT" value="{{ old('_form') === 'item' ? old('name') : '' }}">
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="label">Satuan</label>
-                        <input name="unit" class="input" required maxlength="20" list="unit_options" value="{{ old('unit', 'pcs') }}">
-                        <datalist id="unit_options"><option value="pcs"><option value="unit"><option value="meter"><option value="roll"><option value="box"><option value="pack"></datalist>
-                    </div>
-                    <div class="sm:col-span-2">
-                        <label class="label">Stok minimum <span class="font-normal text-slate-400">(0 = tanpa peringatan)</span></label>
-                        <input name="min_stock" type="number" min="0" class="input" value="{{ old('min_stock', 0) }}">
-                    </div>
-                    <div class="flex items-end sm:col-span-2">
-                        <label class="flex w-full items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-sm"
-                            :class="serialCategories.includes(Number(category)) ? 'border-violet-300 bg-violet-50 text-violet-800' : ''">
-                            <input type="checkbox" name="tracks_serial" value="1" @change="serial = $event.target.checked" :disabled="serialCategories.includes(Number(category))"
-                                :checked="serial || serialCategories.includes(Number(category))" class="rounded border-slate-300">
-                            <span x-text="serialCategories.includes(Number(category)) ? 'Wajib SN (diatur kategori)' : 'Lacak per SN'"></span>
-                        </label>
-                    </div>
-                    <div x-show="serial || serialCategories.includes(Number(category))" x-cloak class="sm:col-span-6">
-                        <label class="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50/50 px-3 py-2.5 text-sm text-slate-700">
-                            <input type="checkbox" name="scans_mac" value="1" @checked(old('scans_mac')) class="rounded border-slate-300">
-                            <span>Scan MAC juga setelah SN <span class="text-xs text-slate-500">(modem, router, switch. Kosongkan untuk roll dropcore, tiang, dll yang cukup barcode)</span></span>
-                        </label>
-                    </div>
-                    <div class="sm:col-span-6">
+                    @include('warehouses.partials.item-fields', ['item' => null, 'preselectCategory' => ctype_digit($category) ? $category : ''])
+                    <div>
                         <x-field-error name="code" />
                         <x-field-error name="item_category_id" />
                         <x-field-error name="min_stock" />
+                        <x-field-error name="variant" />
+                        <x-field-error name="brand" />
                         @if (old('_form') === 'item')
                             <x-field-error name="name" />
                         @endif
                     </div>
-                    <div class="sm:col-span-6 sm:flex sm:justify-end">
+                    <div class="sm:flex sm:justify-end">
                         <button class="btn-primary w-full sm:w-auto"><i data-lucide="save" class="h-4 w-4"></i>Simpan Barang</button>
                     </div>
                 </form>
             </details>
+
+            {{-- Filter by sifat. --}}
+            @php
+                $kindLink = fn (?string $value) => route('items.index', array_filter(['kategori' => $category !== '' ? $category : null, 'sifat' => $value, 'q' => $search !== '' ? $search : null]));
+            @endphp
+            <div class="flex flex-wrap gap-2 text-xs">
+                <a href="{{ $kindLink(null) }}" class="rounded-full border px-3 py-1 font-semibold {{ $kind === '' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300' }}">Semua sifat</a>
+                @foreach (App\Enums\ItemKind::cases() as $case)
+                    <a href="{{ $kindLink($case->value) }}" title="{{ $case->hint() }}" class="rounded-full border px-3 py-1 font-semibold {{ $kind === $case->value ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300' }}">{{ $case->label() }}</a>
+                @endforeach
+            </div>
 
             <x-field-error name="tracks_serial" />
             <x-field-error name="send_as_item_id" />
@@ -193,11 +197,16 @@
                         </tr>
                     </thead>
                     @forelse ($items as $item)
-                        <tbody x-data="{ editing: false, serialCategories: @js($serialCategories), category: @js((string) $item->item_category_id), serial: @js($item->tracks_serial) }" class="border-b border-slate-100">
+                        <tbody x-data="{ editing: false }" class="border-b border-slate-100">
                             <tr class="{{ $item->active ? '' : 'bg-slate-50 text-slate-400' }}">
                                 <td class="px-4 py-3">
                                     <p class="font-medium {{ $item->active ? 'text-slate-800' : '' }}">{{ $item->name }}</p>
-                                    <p class="font-mono text-xs text-slate-500">{{ $item->code }}</p>
+                                    <p class="flex flex-wrap gap-x-2 text-xs text-slate-500">
+                                        <span class="font-mono">{{ $item->code }}</span>
+                                        @if ($item->variant || $item->brand)
+                                            <span>{{ collect([$item->variant, $item->brand])->filter()->implode(' · ') }}</span>
+                                        @endif
+                                    </p>
                                 </td>
                                 <td class="px-4 py-3">
                                     @if ($item->category)
@@ -210,6 +219,7 @@
                                 <td class="px-4 py-3 text-right text-slate-500">{{ $item->min_stock ?: '-' }}</td>
                                 <td class="px-4 py-3">
                                     <div class="flex flex-wrap gap-1">
+                                        <span class="badge {{ $item->kind->badgeClasses() }}">{{ $item->kind->label() }}</span>
                                         @if ($item->tracks_serial)
                                             <span class="badge border-violet-300 bg-violet-50 text-violet-700">{{ $item->scans_mac ? 'SN + MAC' : 'SN' }}</span>
                                         @endif
@@ -230,38 +240,10 @@
                                     <form method="POST" action="{{ route('items.update', $item) }}" class="grid gap-3 sm:grid-cols-6">
                                         @csrf
                                         @method('PUT')
-                                        <input type="hidden" name="code" value="{{ $item->code }}">
-                                        <div class="sm:col-span-3">
-                                            <label class="label text-xs">Nama barang</label>
-                                            <input name="name" value="{{ $item->name }}" class="input text-sm" required maxlength="150">
+                                        <div class="sm:col-span-6">
+                                            @include('warehouses.partials.item-fields', ['item' => $item])
                                         </div>
-                                        <div class="sm:col-span-3">
-                                            <label class="label text-xs">Kategori</label>
-                                            <select name="item_category_id" x-model="category" class="input text-sm">
-                                                <option value="">Tanpa kategori</option>
-                                                @foreach ($categories as $row)
-                                                    <option value="{{ $row->id }}">{{ $row->name }}{{ $row->requires_serial ? ' (wajib SN)' : '' }}</option>
-                                                @endforeach
-                                            </select>
-                                        </div>
-                                        <div class="sm:col-span-1">
-                                            <label class="label text-xs">Satuan</label>
-                                            <input name="unit" value="{{ $item->unit }}" class="input text-sm" required maxlength="20" list="unit_options">
-                                        </div>
-                                        <div class="sm:col-span-1">
-                                            <label class="label text-xs">Stok min</label>
-                                            <input name="min_stock" type="number" min="0" value="{{ $item->min_stock }}" class="input text-sm">
-                                        </div>
-                                        <div class="flex flex-wrap items-end gap-4 sm:col-span-2">
-                                            <label class="flex items-center gap-1.5 pb-2 text-xs">
-                                                <input type="checkbox" name="tracks_serial" value="1" @change="serial = $event.target.checked" :disabled="serialCategories.includes(Number(category))"
-                                                    :checked="serial || serialCategories.includes(Number(category))" class="rounded border-slate-300">Pakai SN
-                                            </label>
-                                            <label x-show="serial || serialCategories.includes(Number(category))" class="flex items-center gap-1.5 pb-2 text-xs" title="Saat Barang Masuk, setiap SN diikuti scan label MAC">
-                                                <input type="checkbox" name="scans_mac" value="1" @checked($item->scans_mac) class="rounded border-slate-300">Scan MAC setelah SN
-                                            </label>
-                                            <label class="flex items-center gap-1.5 pb-2 text-xs"><input type="checkbox" name="active" value="1" @checked($item->active) class="rounded border-slate-300">Aktif</label>
-                                        </div>
+                                        <label class="flex items-center gap-1.5 text-xs sm:col-span-6"><input type="checkbox" name="active" value="1" @checked($item->active) class="rounded border-slate-300">Aktif (muncul di pilihan barang)</label>
                                         {{-- A roll of dropcore can reach the technician as meters of the per-meter item. --}}
                                         <div class="grid gap-3 rounded-lg border border-indigo-100 bg-white p-3 sm:col-span-6 sm:grid-cols-6">
                                             <p class="flex items-center gap-1.5 text-xs font-semibold text-indigo-700 sm:col-span-6"><i data-lucide="repeat" class="h-3.5 w-3.5"></i>Konversi saat dikirim ke teknisi</p>
@@ -281,7 +263,7 @@
                                             </div>
                                             <p class="text-xs text-slate-500 sm:col-span-6">Contoh: kirim 1 roll dropcore → gudang utama berkurang 1 roll, teknisi bertambah 1000 meter di barang dropcore per meter. Roll ber-SN tetap discan per roll saat dikirim. Rasio yang diubah hanya berlaku untuk kiriman berikutnya.</p>
                                         </div>
-                                        <div class="flex items-end gap-2 sm:col-span-2 sm:justify-end">
+                                        <div class="flex items-end gap-2 sm:col-span-6 sm:justify-end">
                                             <button type="button" @click="editing = false" class="btn-secondary px-3 py-1.5 text-xs">Batal</button>
                                             <button class="btn-primary px-3 py-1.5 text-xs"><i data-lucide="save" class="h-3.5 w-3.5"></i>Simpan</button>
                                         </div>

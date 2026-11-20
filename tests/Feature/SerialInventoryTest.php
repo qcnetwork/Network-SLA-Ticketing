@@ -205,7 +205,7 @@ class SerialInventoryTest extends TestCase
         $this->modem->update(['scans_mac' => true]);
         $this->receive([['sn' => 'SN-TYPO'], ['sn' => 'SN-OTHER', 'mac' => '28:6D:DA:0C:D4:60']])->assertSessionHasNoErrors();
         $unit = SerialUnit::query()->where('serial_number', 'SN-TYPO')->sole();
-        $this->get('/gudang')->assertOk()->assertSee('1 belum ada MAC')->assertSee('MAC kosong');
+        $this->get('/gudang?q=MDM031')->assertOk()->assertSee('1 belum ada MAC')->assertSee('MAC kosong');
 
         $this->put("/gudang/unit-sn/{$unit->id}", ['serial_number' => ' sn-fixed ', 'mac' => '28-6d-da-0c-d4-61'])
             ->assertSessionHasNoErrors()->assertSessionHas('success', 'SN SN-TYPO diubah menjadi SN-FIXED');
@@ -245,7 +245,8 @@ class SerialInventoryTest extends TestCase
         $inventory = app(InventoryService::class);
         $this->assertSame(2, $inventory->looseAvailable($main, $cable->fresh()));
         $this->assertSame(3, $inventory->looseAvailable($own, $cable->fresh()));
-        $this->get('/gudang')->assertOk()->assertSee('KBL-1 (TANPA SN)')->assertSee('2 roll stok lama tanpa SN');
+        $this->get('/gudang')->assertOk()->assertSee('KBL-1 (TANPA SN)');
+        $this->get('/gudang?q=KBL-1')->assertOk()->assertSee('2 roll stok lama tanpa SN');
 
         // The old stock still moves by quantity, but never more than what has no SN.
         $this->post('/gudang/kirim', ['item' => 'KBL-1 (TANPA SN)', 'quantity' => 3, 'technician_id' => $this->technician->id])->assertSessionHasErrors('item');

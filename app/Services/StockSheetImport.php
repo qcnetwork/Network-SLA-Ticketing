@@ -32,7 +32,8 @@ class StockSheetImport
         $rows = $this->read($path);
         $report = ['rows' => $rows->count(), 'created' => [], 'stocked' => 0, 'quantity' => 0, 'unchanged' => 0, 'empty' => 0, 'devices' => [], 'negative' => []];
 
-        $apply = function () use ($rows, $actor, &$report) {
+        $classifier = new ItemClassifier;
+        $apply = function () use ($rows, $actor, &$report, $classifier) {
             foreach ($rows as $row) {
                 $item = Item::query()->firstOrNew(['code' => $row['code']]);
                 if (! $item->exists) {
@@ -44,6 +45,9 @@ class StockSheetImport
                         'item_category_id' => $category?->id,
                         'tracks_serial' => str_starts_with($row['code'], 'MDM') || (bool) $category?->requires_serial,
                         'scans_mac' => str_starts_with($row['code'], 'MDM') || (bool) $category?->requires_serial,
+                        'variant' => $classifier->variant($category?->name, $row['name']),
+                        'brand' => $classifier->brand($row['name']),
+                        'kind' => $category?->kind ?? $classifier->kind($category?->name),
                         'active' => true,
                     ])->save();
                     $report['created'][] = $row['code'];

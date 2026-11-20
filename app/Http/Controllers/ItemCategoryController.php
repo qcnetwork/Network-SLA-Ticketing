@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ItemKind;
 use App\Models\ItemCategory;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -51,8 +52,16 @@ class ItemCategoryController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:80', Rule::unique('item_categories', 'name')->ignore($category)],
             'icon' => ['required', Rule::in(array_keys(ItemCategory::ICONS))],
-        ], [], ['name' => 'nama kategori', 'icon' => 'ikon']);
+            'code_prefix' => ['nullable', 'string', 'max:10', 'regex:/^[A-Za-z]+$/'],
+            'kind' => ['nullable', Rule::enum(ItemKind::class)],
+        ], ['code_prefix.regex' => 'Awalan kode hanya huruf, mis. MDM'], ['name' => 'nama kategori', 'icon' => 'ikon', 'code_prefix' => 'awalan kode']);
 
-        return $data + ['requires_serial' => $request->boolean('requires_serial')];
+        return [
+            'name' => $data['name'],
+            'icon' => $data['icon'],
+            'code_prefix' => filled($data['code_prefix'] ?? null) ? strtoupper($data['code_prefix']) : null,
+            'kind' => $data['kind'] ?? $category?->kind?->value ?? ItemKind::HABIS_PAKAI->value,
+            'requires_serial' => $request->boolean('requires_serial'),
+        ];
     }
 }

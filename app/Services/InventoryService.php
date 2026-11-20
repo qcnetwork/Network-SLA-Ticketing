@@ -34,6 +34,8 @@ use Illuminate\Validation\ValidationException;
  */
 class InventoryService
 {
+    public function __construct(private ItemClassifier $classifier = new ItemClassifier) {}
+
     public function receive(Item $item, int $quantity, User $actor, ?string $notes = null): StockMovement
     {
         $this->ensureCounted($item, 'item');
@@ -553,6 +555,10 @@ class InventoryService
                     $item->tracks_serial = str_starts_with($code, 'MDM') || (bool) $category?->requires_serial;
                     // Items guessed into an SN category are devices from the code list, scanned with their MAC.
                     $item->scans_mac = $item->tracks_serial;
+                    // Jenis, merk and sifat read from the name, so the item lands in the stock tree.
+                    $item->variant = $this->classifier->variant($category?->name, $name);
+                    $item->brand = $this->classifier->brand($name);
+                    $item->kind = $category?->kind ?? $this->classifier->kind($category?->name);
                 }
                 $item->fill(['name' => mb_substr($name, 0, 150)])->save();
             }

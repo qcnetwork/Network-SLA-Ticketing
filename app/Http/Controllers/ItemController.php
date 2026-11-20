@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ItemKind;
 use App\Models\Item;
 use App\Models\ItemCategory;
 use App\Services\InventoryService;
@@ -22,11 +23,24 @@ class ItemController extends Controller
     {
         $search = trim((string) $request->query('q', ''));
         $category = (string) $request->query('kategori', '');
+        $kind = ItemKind::tryFrom((string) $request->query('sifat'))?->value ?? '';
+        $categories = ItemCategory::query()->ordered()->withCount('items')->get();
 
         return view('warehouses.items', [
             'search' => $search,
             'category' => $category,
-            'categories' => ItemCategory::query()->ordered()->withCount('items')->get(),
+            'kind' => $kind,
+            'categories' => $categories,
+            // What a category hands a new item: its sifat, how its units are told apart, and the next code.
+            'categoryMeta' => $categories->mapWithKeys(fn (ItemCategory $row) => [$row->id => [
+                'requires_serial' => $row->requires_serial,
+                'kind' => $row->kind->value,
+                'identifier' => $row->requires_serial ? ($row->kind === ItemKind::PERANGKAT_AKTIF ? 'SN_MAC' : 'SN') : 'JUMLAH',
+                'next_code' => $row->code_prefix ? Item::nextCode($row->code_prefix) : null,
+            ]]),
+            'variantsByCategory' => Item::query()->whereNotNull('variant')->whereNotNull('item_category_id')->distinct()->orderBy('variant')
+                ->get(['item_category_id', 'variant'])->groupBy('item_category_id')->map->pluck('variant'),
+            'brands' => Item::query()->whereNotNull('brand')->distinct()->orderBy('brand')->pluck('brand'),
             'uncategorised' => Item::query()->whereNull('item_category_id')->count(),
             'icons' => ItemCategory::ICONS,
             // Counted items a roll-type item can be handed to technicians as (dropcore per meter).
@@ -35,6 +49,7 @@ class ItemController extends Controller
                 ->when($search !== '', fn ($query) => $query->search($search))
                 ->when($category === 'none', fn ($query) => $query->whereNull('item_category_id'))
                 ->when(ctype_digit($category), fn ($query) => $query->where('item_category_id', (int) $category))
+                ->when($kind !== '', fn ($query) => $query->where('kind', $kind))
                 ->withSum('stocks', 'quantity')
                 ->orderBy('code')
                 ->paginate(50)
@@ -47,9 +62,9 @@ class ItemController extends Controller
         $data = $this->validateItem($request);
         $item = new Item(['active' => true]);
         $tracksSerial = $this->tracksSerial($request, $data, $item);
-        $item->fill($data + ['tracks_serial' => $tracksSerial, 'scans_mac' => $tracksSerial && $request->boolean('scans_mac')])->save();
+        $item->fill($data + ['tracks_serial' => $tracksSerial, 'scans_mac' => $tracksSerial && $this->scansMac($request)])->save();
 
-        return back()->with('success', "Barang {$data['code']} ditambahkan");
+        return back()->with('success', "Barang {$item->code} · {$item->name} ditambahkan");
     }
 
     public function update(Request $request, Item $item): RedirectResponse
@@ -60,7 +75,7 @@ class ItemController extends Controller
         $item->update($data + [
             'active' => $request->boolean('active'),
             'tracks_serial' => $tracksSerial,
-            'scans_mac' => $tracksSerial && $request->boolean('scans_mac'),
+            'scans_mac' => $tracksSerial && $this->scansMac($request),
         ] + $this->conversion($request, $item));
 
         return back()->with('success', "Barang {$item->code} diperbarui");
@@ -126,7 +141,7 @@ class ItemController extends Controller
     private function tracksSerial(Request $request, array $data, Item $item): bool
     {
         $category = ItemCategory::query()->find($data['item_category_id'] ?? null);
-        $wanted = $category?->requires_serial || $request->boolean('tracks_serial');
+        $wanted = $category?->requires_serial || $this->identifier($request) !== 'JUMLAH';
         if (! $item->exists || $wanted === $item->tracks_serial) {
             return $wanted;
         }
@@ -165,12 +180,50 @@ class ItemController extends Controller
         return ['send_as_item_id' => (int) $target, 'send_ratio' => (int) $data['send_ratio']];
     }
 
+    /**
+     * "Penanda unit" on the form: JUMLAH (counted), SN, or SN_MAC. Older callers send the tracks_serial and
+     * scans_mac ticks instead.
+     */
+    private function identifier(Request $request): string
+    {
+        $identifier = (string) $request->input('identifier');
+        if (in_array($identifier, ['JUMLAH', 'SN', 'SN_MAC'], true)) {
+            return $identifier;
+        }
+
+        return ! $request->boolean('tracks_serial') ? 'JUMLAH' : ($request->boolean('scans_mac') ? 'SN_MAC' : 'SN');
+    }
+
+    private function scansMac(Request $request): bool
+    {
+        $identifier = $this->identifier($request);
+
+        // A category that forces SN on a "jumlah" pick keeps the MAC tick as sent.
+        return $identifier === 'SN_MAC' || ($identifier === 'JUMLAH' && $request->boolean('scans_mac'));
+    }
+
+    /**
+     * A new item without a code takes the next one of its category's prefix (MDM → MDM083). Jenis and merk
+     * reuse the spelling already in use, so "fiberhome" joins "Fiberhome" instead of starting a second group.
+     */
     private function validateItem(Request $request, ?Item $item = null): array
     {
+        $categoryId = $request->input('item_category_id') ?: null;
+        $code = strtoupper(trim((string) $request->input('code')));
+        if ($code === '' && ! $item) {
+            $prefix = ItemCategory::query()->whereKey($categoryId)->value('code_prefix');
+            $code = $prefix ? Item::nextCode($prefix) : '';
+        }
+        $same = fn (string $column, ?string $value) => ($value = trim((string) $value)) === ''
+            ? null
+            : (Item::query()->whereRaw("lower({$column}) = ?", [mb_strtolower($value)])->value($column) ?? $value);
         $request->merge([
-            'code' => strtoupper(trim((string) $request->input('code'))),
-            'item_category_id' => $request->input('item_category_id') ?: null,
+            'code' => $code,
+            'item_category_id' => $categoryId,
             'min_stock' => $request->input('min_stock') ?: 0,
+            'variant' => $same('variant', $request->input('variant')),
+            'brand' => $same('brand', $request->input('brand')),
+            'kind' => $request->input('kind') ?: (ItemCategory::query()->find($categoryId)?->kind?->value ?? $item?->kind?->value ?? ItemKind::HABIS_PAKAI->value),
         ]);
 
         return $request->validate([
@@ -178,7 +231,13 @@ class ItemController extends Controller
             'name' => ['required', 'string', 'max:150'],
             'unit' => ['required', 'string', 'max:20'],
             'item_category_id' => ['nullable', Rule::exists('item_categories', 'id')],
+            'variant' => ['nullable', 'string', 'max:60'],
+            'brand' => ['nullable', 'string', 'max:60'],
+            'kind' => ['required', Rule::enum(ItemKind::class)],
             'min_stock' => ['integer', 'min:0', 'max:1000000'],
-        ], [], ['code' => 'kode', 'name' => 'nama barang', 'unit' => 'satuan', 'item_category_id' => 'kategori', 'min_stock' => 'stok minimum']);
+        ], ['code.required' => 'Isi kode barang, atau atur awalan kode di kategorinya supaya terisi otomatis'], [
+            'code' => 'kode', 'name' => 'nama barang', 'unit' => 'satuan', 'item_category_id' => 'kategori',
+            'variant' => 'jenis', 'brand' => 'merk', 'kind' => 'sifat barang', 'min_stock' => 'stok minimum',
+        ]);
     }
 }

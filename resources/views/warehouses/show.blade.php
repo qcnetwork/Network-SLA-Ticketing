@@ -50,7 +50,7 @@
                 </section>
             @endif
             @include('warehouses.partials.material-requests')
-            @include('warehouses.partials.stock-tabs', ['title' => 'Stok'])
+            @include('warehouses.partials.stock-tabs', ['title' => 'Stok', 'stockWarehouse' => $warehouse])
         </div>
 
         @if ($canManage)

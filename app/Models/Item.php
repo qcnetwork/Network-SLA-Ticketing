@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ItemKind;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -33,7 +34,28 @@ class Item extends Model
 
     protected function casts(): array
     {
-        return ['active' => 'boolean', 'tracks_serial' => 'boolean', 'scans_mac' => 'boolean', 'min_stock' => 'integer', 'send_ratio' => 'integer'];
+        return ['active' => 'boolean', 'tracks_serial' => 'boolean', 'scans_mac' => 'boolean', 'kind' => ItemKind::class, 'min_stock' => 'integer', 'send_ratio' => 'integer'];
+    }
+
+    /**
+     * The next free code for a category prefix: MDM → MDM083 when MDM082 is the highest plain-numbered code.
+     */
+    public static function nextCode(string $prefix): string
+    {
+        $prefix = strtoupper(trim($prefix));
+        $highest = static::query()->where('code', 'like', "{$prefix}%")->pluck('code')
+            ->map(fn (string $code) => preg_match('/^'.preg_quote($prefix, '/').'(\d+)$/', $code, $m) ? (int) $m[1] : 0)
+            ->max() ?? 0;
+
+        return $prefix.str_pad((string) ($highest + 1), 3, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * How a unit is told apart: counted by quantity, an SN, or an SN with its MAC label.
+     */
+    public function identifier(): string
+    {
+        return ! $this->tracks_serial ? 'JUMLAH' : ($this->scans_mac ? 'SN_MAC' : 'SN');
     }
 
     public function category(): BelongsTo
@@ -76,7 +98,8 @@ class Item extends Model
 
     public function scopeSearch(Builder $query, string $term): Builder
     {
-        return $query->where(fn (Builder $q) => $q->where('code', 'like', "%{$term}%")->orWhere('name', 'like', "%{$term}%"));
+        return $query->where(fn (Builder $q) => $q->where('code', 'like', "%{$term}%")->orWhere('name', 'like', "%{$term}%")
+            ->orWhere('variant', 'like', "%{$term}%")->orWhere('brand', 'like', "%{$term}%"));
     }
 
     /**

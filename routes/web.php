@@ -110,6 +110,8 @@ Route::middleware('auth')->group(function () {
     Route::middleware('menu:warehouse')->group(function () {
         Route::get('/gudang', [WarehouseController::class, 'index'])->name('warehouses.index');
         Route::get('/gudang/{warehouse}', [WarehouseController::class, 'show'])->whereNumber('warehouse')->name('warehouses.show');
+        // One category's stock in a warehouse, browsed by jenis → merk → model.
+        Route::get('/gudang/{warehouse}/stok/{category}', [WarehouseController::class, 'category'])->whereNumber('warehouse')->name('warehouses.category');
         // Technicians check scans against their own stock; see lookupSerial.
         Route::get('/gudang/cek-sn', [WarehouseController::class, 'lookupSerial'])->name('warehouses.lookup-serial');
         // Pemakaian Alat: the warehouse records any job, a technician the jobs from their own stock.

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ItemKind;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -71,7 +72,7 @@ class ItemCategory extends Model
 
     protected function casts(): array
     {
-        return ['requires_serial' => 'boolean'];
+        return ['requires_serial' => 'boolean', 'kind' => ItemKind::class];
     }
 
     public function items(): HasMany

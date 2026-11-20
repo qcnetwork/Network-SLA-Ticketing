@@ -86,6 +86,59 @@ class WarehouseController extends Controller
         ]);
     }
 
+    /**
+     * One category's stock in a warehouse, a level at a time: jenis (ONT GPON / EPON / XPON), then merk, then the
+     * models with their stock and SNs. A level nobody filled in is skipped; items without one sit under
+     * "Belum ditentukan" (query value "-"). `semua` lists every model of the current level at once.
+     */
+    public function category(Request $request, Warehouse $warehouse, ItemCategory $category): View
+    {
+        $user = $request->user();
+        abort_if($user->role === Role::TEKNISI && $warehouse->user_id !== $user->id, 403);
+        $variant = $request->query('jenis');
+        $brand = $request->query('merk');
+        $matches = fn (?string $value, ?string $wanted) => $wanted === null || ($wanted === '-' ? $value === null : $value === $wanted);
+
+        $stocks = $warehouse->stocks()->where('quantity', '>', 0)
+            ->whereHas('item', fn ($q) => $q->where('item_category_id', $category->id))
+            ->with(['item.category', 'item.sendAs'])->get()
+            ->filter(fn (Stock $stock) => $matches($stock->item->variant, $variant) && $matches($stock->item->brand, $brand))
+            ->sortBy('item.code')->values();
+
+        $level = match (true) {
+            $request->boolean('semua') => 'model',
+            $variant === null && $stocks->contains(fn (Stock $stock) => $stock->item->variant !== null) => 'jenis',
+            $brand === null && $stocks->contains(fn (Stock $stock) => $stock->item->brand !== null) => 'merk',
+            default => 'model',
+        };
+        $groups = $level === 'model' ? collect() : $stocks
+            ->groupBy(fn (Stock $stock) => ($level === 'jenis' ? $stock->item->variant : $stock->item->brand) ?? '-')
+            ->map(fn ($rows, $key) => [
+                'key' => (string) $key,
+                'models' => $rows->count(),
+                'units' => (int) $rows->sum('quantity'),
+                'brands' => $rows->pluck('item.brand')->filter()->unique()->count(),
+                'unit' => $rows->pluck('item.unit')->unique()->count() === 1 ? $rows->first()->item->unit : 'unit',
+            ])
+            // Named groups A-Z, "Belum ditentukan" last.
+            ->sortBy(fn (array $group) => ($group['key'] === '-' ? '1' : '0').$group['key'])->values();
+
+        return view('warehouses.category', [
+            'warehouse' => $warehouse->load('user'),
+            'category' => $category,
+            'variant' => $variant,
+            'brand' => $brand,
+            'level' => $level,
+            'groups' => $groups,
+            'stocks' => $stocks,
+            'total' => (int) $stocks->sum('quantity'),
+            'units' => $level === 'model'
+                ? $warehouse->serialUnits()->whereIn('item_id', $stocks->pluck('item_id'))->orderBy('serial_number')->get()->groupBy('item_id')
+                : collect(),
+            'canManage' => $user->canAccess(Menu::WAREHOUSE_MANAGE),
+        ]);
+    }
+
     public function receiveSerials(Request $request): RedirectResponse
     {
         $data = $request->validate([

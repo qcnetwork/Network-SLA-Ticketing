@@ -81,7 +81,7 @@ class ItemCategoryTest extends TestCase
             'code' => 'MKT001', 'name' => $item->name, 'unit' => 'unit', 'active' => 1, 'item_category_id' => $this->category('Router & Mikrotik')->id,
         ])->assertSessionHasNoErrors();
         $this->assertTrue($item->fresh()->tracks_serial);
-        $this->get('/gudang')->assertOk()->assertSee('4 unit stok lama tanpa SN');
+        $this->get('/gudang?q=MKT001')->assertOk()->assertSee('4 unit stok lama tanpa SN');
     }
 
     public function test_categories_are_managed(): void
@@ -143,10 +143,12 @@ class ItemCategoryTest extends TestCase
         $this->stockOf($adaptor, 4);
         $this->stockOf($cable, 200);
 
+        // The warehouse starts from category cards; the low-stock card names the items.
         $this->actingAs($this->warehouse)->get('/gudang')->assertOk()
-            ->assertSee('ADAPTOR 12 V 1 A')->assertSee('DROPCORE 1 CORE')
-            ->assertSee('Stok Menipis (2)')->assertSee('PATCHCORD SC')
-            ->assertSee('Menipis (min 10)');
+            ->assertSee('Kelistrikan')->assertSee('Kabel')
+            ->assertSee('Stok Menipis (2)')->assertSee('PATCHCORD SC');
+        $this->get('/gudang/'.Warehouse::main()->id.'/stok/'.$this->category('Kelistrikan')->id)->assertOk()
+            ->assertSee('ADAPTOR 12 V 1 A')->assertSee('Menipis (min 10)');
 
         // The receive form's item list and the low-stock card still name every item, so check the stock table itself.
         $stock = $this->get('/gudang?kategori='.$this->category('Kabel')->id)->assertOk()->viewData('stocks');

@@ -58,7 +58,7 @@
                 </section>
             @endif
             @include('warehouses.partials.material-requests')
-            @include('warehouses.partials.stock-tabs', ['title' => $main->name, 'showLow' => true])
+            @include('warehouses.partials.stock-tabs', ['title' => $main->name, 'showLow' => true, 'stockWarehouse' => $main])
         </div>
 
         <aside class="order-first space-y-6 lg:order-none">
