@@ -36,7 +36,7 @@ class ReportController extends Controller
     }
 
     /**
-     * Heatmap of where complaints come from, over ?from=&to= (the last 90 days by default).
+     * Map of where complaints come from (a marker per customer location), over ?from=&to= (the last 90 days by default).
      */
     public function heatmap(Request $request, ComplaintMapService $map): View
     {

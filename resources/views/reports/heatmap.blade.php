@@ -67,6 +67,23 @@
         </div>
     </div>
 
+    @if ($m['strays']->isNotEmpty())
+        <div class="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+            <i data-lucide="map-pin-off" class="mt-0.5 h-4 w-4 shrink-0"></i>
+            <div>
+                <p>{{ $m['strays']->count() }} tiket titik lokasinya jauh di luar area layanan, kemungkinan salah ketik koordinat (sering tanda minus di latitude hilang). Peta tidak ikut zoom ke titik ini; perbaiki lokasinya di tiket:</p>
+                <ul class="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                    @foreach ($m['strays'] as $stray)
+                        <li>
+                            <a href="{{ route('tickets.show', $stray->ticket_number) }}" class="font-mono font-semibold hover:underline">{{ $stray->ticket_number }}</a>
+                            {{ $stray->customer_name }} <span class="font-mono text-xs">({{ App\Support\GeoLocation::format($stray->latitude) }}, {{ App\Support\GeoLocation::format($stray->longitude) }})</span>
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+        </div>
+    @endif
+
     @if ($m['total'] > 0 && $coverage < 50)
         <p class="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
             <i data-lucide="alert-triangle" class="mt-0.5 h-4 w-4 shrink-0"></i>
@@ -83,7 +100,16 @@
                     Tahan Ctrl + scroll untuk zoom peta
                 </div>
             </div>
-            <script type="application/json" id="complaint-map-data">@json(['points' => $m['points'], 'hotspots' => $m['hotspots']])</script>
+            @php
+                $mapData = [
+                    'markers' => $m['markers'],
+                    'areas' => array_map(fn ($spot) => ['count' => $spot['count'], 'points' => $spot['points'], 'bounds' => $spot['bounds']], $m['hotspots']),
+                    'ticketUrl' => route('tickets.show', '__TICKET__'),
+                    // Mistyped pins stay on the map but the first view frames the rest.
+                    'strays' => $m['strays']->map(fn ($ticket) => round($ticket->latitude, 5).','.round($ticket->longitude, 5))->unique()->values()->all(),
+                ];
+            @endphp
+            <script type="application/json" id="complaint-map-data">@json($mapData)</script>
             @vite('resources/js/heatmap.js')
         @else
             <div class="flex h-64 flex-col items-center justify-center gap-2 text-sm text-slate-400">
@@ -96,7 +122,7 @@
     <section class="card overflow-x-auto">
         <div class="px-5 pt-5">
             <h2 class="font-semibold">Area Paling Sering Komplain</h2>
-            <p class="text-xs text-slate-500">Titik dikelompokkan per area ±1 km. Klik area untuk melihatnya di peta.</p>
+            <p class="text-xs text-slate-500">Peta dibagi kotak area ±1 km (garis merah putus-putus di peta). Angka area = jumlah semua marker di dalam kotaknya. Klik nama area untuk menyorot kotaknya, atau nama pelanggan untuk ke titiknya.</p>
         </div>
         <ul class="mt-3 divide-y divide-slate-100 border-t border-slate-200">
             @forelse ($m['hotspots'] as $i => $spot)
@@ -104,18 +130,32 @@
                     <div class="flex min-w-0 flex-1 items-start gap-3">
                         <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-100 text-xs font-bold text-rose-700">{{ $i + 1 }}</span>
                         <div class="min-w-0">
-                            <button type="button" data-hotspot data-lat="{{ $spot['latitude'] }}" data-lng="{{ $spot['longitude'] }}"
+                            <button type="button" data-area="{{ $i }}"
                                     class="text-left text-sm font-medium text-slate-800 hover:text-indigo-700 hover:underline">
                                 {{ $spot['address'] ?? 'Area '.\App\Support\GeoLocation::format($spot['latitude']).', '.\App\Support\GeoLocation::format($spot['longitude']) }}
                             </button>
                             <p class="text-xs text-slate-500">
-                                {{ $spot['customers'] }} pelanggan · paling banyak: {{ $spot['top_category'] }} · terakhir {{ $spot['latest']->format('d/m/Y') }}
+                                <b class="text-slate-700">{{ $spot['count'] }} komplain</b> · {{ count($spot['complainants']) }} pelanggan · {{ $spot['points'] }} titik di peta · paling banyak: {{ $spot['top_category'] }} · terakhir {{ $spot['latest']->format('d/m/Y') }}
                             </p>
-                            <div class="mt-1 flex flex-wrap gap-x-2 gap-y-1">
-                                @foreach ($spot['tickets'] as $number)
-                                    <a href="{{ route('tickets.show', $number) }}" class="font-mono text-[11px] text-indigo-700 hover:underline">{{ $number }}</a>
+                            @php
+                                $shown = array_slice($spot['complainants'], 0, 5);
+                                $rest = array_slice($spot['complainants'], 5);
+                            @endphp
+                            <ul class="mt-2 space-y-1">
+                                @foreach ($shown as $person)
+                                    @include('reports.partials.complainant', ['person' => $person])
                                 @endforeach
-                            </div>
+                            </ul>
+                            @if ($rest)
+                                <details class="mt-1">
+                                    <summary class="cursor-pointer text-xs font-medium text-indigo-700 hover:underline">+{{ count($rest) }} pelanggan lainnya</summary>
+                                    <ul class="mt-1 space-y-1">
+                                        @foreach ($rest as $person)
+                                            @include('reports.partials.complainant', ['person' => $person])
+                                        @endforeach
+                                    </ul>
+                                </details>
+                            @endif
                         </div>
                     </div>
                     <div class="flex items-center gap-3 sm:w-48">

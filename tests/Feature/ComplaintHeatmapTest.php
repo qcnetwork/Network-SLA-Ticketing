@@ -36,16 +36,73 @@ class ComplaintHeatmapTest extends TestCase
 
         $this->assertSame(5, $map['total']);
         $this->assertSame(4, $map['located']);
-        $this->assertCount(4, $map['points']);
+        $this->assertCount(4, $map['markers']);
         $this->assertCount(2, $map['hotspots']);
         $this->assertSame(3, $map['hotspots'][0]['count']);
         $this->assertSame('Internet Mati / LOS', $map['hotspots'][0]['top_category']);
         // The shareloc link is dropped from the address shown for the area.
         $this->assertSame('Jl. Melati 5, Perum Indah', $map['hotspots'][0]['address']);
         $this->assertSame(1, $map['hotspots'][1]['count']);
+        $this->assertCount(3, $map['hotspots'][0]['complainants']);
+
+        // Each area is a cell drawn on the map, and its count is the sum of the markers inside it.
+        foreach ($map['hotspots'] as $area) {
+            [[$south, $west], [$north, $east]] = $area['bounds'];
+            $inside = collect($map['markers'])->filter(fn ($marker) => $marker['latitude'] >= $south && $marker['latitude'] < $north
+                && $marker['longitude'] >= $west && $marker['longitude'] < $east);
+            $this->assertSame($area['count'], $inside->sum('count'));
+            $this->assertSame($area['points'], $inside->count());
+        }
+        $this->assertSame([[-7.26, 112.75], [-7.25, 112.76]], $map['hotspots'][0]['bounds']);
     }
 
-    public function test_page_filters_by_date_and_category(): void
+    public function test_each_customer_location_gets_one_marker_listing_who_complained_and_how_often(): void
+    {
+        // Budi complained three times from home, Siti once from the same house; Andi lives nearby.
+        foreach (range(1, 3) as $day) {
+            $this->ticketAt(-7.25012, 112.75021, ['customer_id' => 'CUST-1', 'customer_name' => 'Budi', 'created_at' => "2026-10-0{$day} 09:00:00"]);
+        }
+        $this->ticketAt(-7.25012, 112.75021, ['customer_id' => 'CUST-2', 'customer_name' => 'Siti']);
+        $this->ticketAt(-7.25100, 112.75100, ['customer_id' => 'CUST-3', 'customer_name' => 'Andi']);
+
+        $map = app(ComplaintMapService::class)->build(Carbon::parse('2026-10-01'), Carbon::parse('2026-10-31'));
+
+        $this->assertCount(2, $map['markers']);
+        $home = collect($map['markers'])->firstWhere('count', 4);
+        $this->assertSame(-7.25012, $home['latitude']);
+        $this->assertSame(['Budi', 'Siti'], array_column($home['customers'], 'name'));
+        $this->assertSame([3, 1], array_column($home['customers'], 'count'));
+
+        // The area lists everyone who complained in it, most complaints first.
+        $area = $map['hotspots'][0];
+        $this->assertSame(5, $area['count']);
+        $this->assertSame(['Budi' => 3, 'Siti' => 1, 'Andi' => 1], array_column($area['complainants'], 'count', 'name'));
+        $this->assertCount(3, $area['complainants'][0]['tickets']);
+
+        $this->actingAs($this->userWithRole(Role::CS))
+            ->get('/reports/heatmap?from=2026-10-01&to=2026-10-31')
+            ->assertOk()
+            ->assertSeeInOrder(['3×', 'Budi', 'CUST-1', '1×', 'Siti'])
+            ->assertSee('CUST-3');
+    }
+
+    public function test_a_pin_far_off_the_area_is_flagged_as_a_likely_typo(): void
+    {
+        foreach ([[-7.05, 109.58], [-7.06, 109.59], [-7.04, 109.6]] as [$latitude, $longitude]) {
+            $this->ticketAt($latitude, $longitude);
+        }
+        // The latitude lost its minus sign: the pin lands north of the equator.
+        $stray = $this->ticketAt(7.052996, 109.584442);
+
+        $map = app(ComplaintMapService::class)->build(Carbon::parse('2026-10-01'), Carbon::parse('2026-10-31'));
+        $this->assertSame([$stray->ticket_number], $map['strays']->pluck('ticket_number')->all());
+        $this->assertCount(4, $map['markers']);
+
+        $this->actingAs($this->userWithRole(Role::CS))->get('/reports/heatmap?from=2026-10-01&to=2026-10-31')
+            ->assertOk()->assertSee('kemungkinan salah ketik koordinat')->assertSee($stray->ticket_number);
+    }
+
+        public function test_page_filters_by_date_and_category(): void
     {
         $inRange = $this->ticketAt(-7.25, 112.75, ['category' => 'Lambat']);
         $otherCategory = $this->ticketAt(-7.25, 112.75, ['category' => 'Internet Mati / LOS']);
