@@ -10,6 +10,7 @@ enum StockMovementType: string
     case PAKAI = 'PAKAI';
     case JUAL = 'JUAL';
     case KOREKSI = 'KOREKSI';
+    case PENYESUAIAN = 'PENYESUAIAN';
 
     public function label(): string
     {
@@ -20,6 +21,7 @@ enum StockMovementType: string
             self::PAKAI => 'Dipakai di Tiket',
             self::JUAL => 'Dijual',
             self::KOREKSI => 'Batal Pemakaian',
+            self::PENYESUAIAN => 'Adjust Stok',
         };
     }
 
@@ -32,6 +34,7 @@ enum StockMovementType: string
             self::PAKAI => 'wrench',
             self::JUAL => 'shopping-cart',
             self::KOREKSI => 'rotate-ccw',
+            self::PENYESUAIAN => 'sliders-horizontal',
         };
     }
 
@@ -44,6 +47,7 @@ enum StockMovementType: string
             self::PAKAI => 'border-rose-300 bg-rose-50 text-rose-700',
             self::JUAL => 'border-sky-300 bg-sky-50 text-sky-700',
             self::KOREKSI => 'border-slate-300 bg-slate-50 text-slate-700',
+            self::PENYESUAIAN => 'border-violet-300 bg-violet-50 text-violet-700',
         };
     }
 }

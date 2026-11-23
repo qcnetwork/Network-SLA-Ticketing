@@ -308,8 +308,11 @@ class WarehouseController extends Controller
     {
         $data = $request->validate(['review_notes' => ['nullable', 'string', 'max:255']]);
         $this->inventory->approveRequest($materialRequest, $request->user(), $data['review_notes'] ?? null);
+        $minus = Stock::query()->where('quantity', '<', 0)
+            ->whereIn('warehouse_id', $materialRequest->lines->pluck('warehouse_id'))->whereIn('item_id', $materialRequest->lines->pluck('item_id'))->count();
 
-        return back()->with('success', "Material tiket {$materialRequest->ticket->ticket_number} disetujui, stok teknisi sudah dikurangi");
+        return back()->with('success', "Material tiket {$materialRequest->ticket->ticket_number} disetujui, stok teknisi sudah dikurangi"
+            .($minus ? ". {$minus} barang jadi minus: cek sisa stok pribadi teknisi lalu adjust di menu Adjust Stok" : ''));
     }
 
     public function rejectRequest(Request $request, MaterialRequest $materialRequest): RedirectResponse
@@ -382,6 +385,12 @@ class WarehouseController extends Controller
                 ->when(ctype_digit($category), fn ($q) => $q->where('items.item_category_id', (int) $category))
                 ->orderBy('items.code')->select('stocks.*')
                 ->paginate(20, pageName: 'stok')->withQueryString(),
+            // What each category holds, for the browse view where every category lists its items in its own band.
+            'categoryItems' => $search === '' && $category === ''
+                ? $warehouse->stocks()->where('quantity', '>', 0)->with('item')->get()
+                    ->sortBy([['quantity', 'desc'], fn ($a, $b) => strcmp($a->item->code, $b->item->code)])
+                    ->groupBy(fn (Stock $stock) => $stock->item->item_category_id ?? 'none')
+                : collect(),
             'units' => $warehouse->serialUnits()->with('item')->orderBy('item_id')->orderBy('serial_number')->get()->groupBy('item_id'),
             'movements' => StockMovement::query()
                 ->with(['item', 'serialUnit', 'fromWarehouse', 'toWarehouse', 'ticket', 'sale', 'user'])

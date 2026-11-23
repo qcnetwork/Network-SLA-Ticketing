@@ -16,36 +16,69 @@
     </div>
 
     @if ($search === '' && $categoryFilter === '')
-        {{-- Start from the categories: each opens its own page, browsed jenis → merk → model. --}}
-        <div class="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
-            @foreach ($categories as $category)
+        {{-- One full-width band per category, stacked, each listing what it holds (largest stock first) so the
+             contents show at a glance; the header opens the category page, browsed jenis → merk → model. --}}
+        @php
+            $preview = 12;
+            $bands = $categories->filter(fn ($category) => isset($byCategory[$category->id]))
+                ->map(fn ($category) => [
+                    'key' => $category->id, 'name' => $category->name, 'icon' => $category->icon, 'serial' => $category->requires_serial,
+                    'url' => route('warehouses.category', [$stockWarehouse, $category]), 'row' => $byCategory[$category->id], 'loose' => false,
+                ])->values();
+            if (isset($byCategory['none'])) {
+                $bands->push([
+                    'key' => 'none', 'name' => 'Tanpa kategori', 'icon' => 'circle-alert', 'serial' => false,
+                    'url' => request()->fullUrlWithQuery(['kategori' => 'none', 'stok' => null]), 'row' => $byCategory['none'], 'loose' => true,
+                ]);
+            }
+        @endphp
+        <div class="space-y-4 p-5">
+            @forelse ($bands as $band)
                 @php
-                    $row = $byCategory[$category->id] ?? null;
+                    $held = $categoryItems[$band['key']] ?? collect();
                 @endphp
-                @continue(! $row)
-                <a href="{{ route('warehouses.category', [$stockWarehouse, $category]) }}" class="group flex items-center gap-3 rounded-xl border border-slate-200 p-3.5 transition hover:border-indigo-300 hover:bg-indigo-50/40">
-                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-indigo-50 text-indigo-600"><i data-lucide="{{ $category->icon }}" class="h-5 w-5"></i></span>
-                    <span class="min-w-0 flex-1">
-                        <span class="block truncate font-semibold text-slate-800">{{ $category->name }}</span>
-                        <span class="text-xs text-slate-500">{{ $row->kinds }} model{{ $category->requires_serial ? ' · per SN' : '' }}</span>
-                    </span>
-                    <span class="text-right text-lg font-bold text-slate-900">{{ number_format((int) $row->total, 0, ',', '.') }}</span>
-                    <i data-lucide="chevron-right" class="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-indigo-500"></i>
-                </a>
-            @endforeach
-            @if (isset($byCategory['none']))
-                <a href="{{ request()->fullUrlWithQuery(['kategori' => 'none', 'stok' => null]) }}" class="group flex items-center gap-3 rounded-xl border border-dashed border-amber-300 p-3.5 transition hover:bg-amber-50/50">
-                    <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-amber-50 text-amber-600"><i data-lucide="circle-alert" class="h-5 w-5"></i></span>
-                    <span class="min-w-0 flex-1">
-                        <span class="block font-semibold text-amber-700">Tanpa kategori</span>
-                        <span class="text-xs text-slate-500">{{ $byCategory['none']->kinds }} barang</span>
-                    </span>
-                    <span class="text-right text-lg font-bold text-slate-900">{{ number_format((int) $byCategory['none']->total, 0, ',', '.') }}</span>
-                </a>
-            @endif
-            @if ($byCategory->isEmpty())
-                <p class="col-span-full py-8 text-center text-slate-400">Belum ada stok</p>
-            @endif
+                <div class="overflow-hidden rounded-xl border {{ $band['loose'] ? 'border-dashed border-amber-300' : 'border-slate-200' }}">
+                    <a href="{{ $band['url'] }}" class="group flex items-center gap-3 px-4 py-3 transition {{ $band['loose'] ? 'bg-amber-50/60 hover:bg-amber-50' : 'bg-slate-50 hover:bg-indigo-50/60' }}">
+                        <span class="grid h-10 w-10 shrink-0 place-items-center rounded-lg {{ $band['loose'] ? 'bg-amber-100 text-amber-600' : 'bg-indigo-100 text-indigo-600' }}"><i data-lucide="{{ $band['icon'] }}" class="h-5 w-5"></i></span>
+                        <span class="min-w-0 flex-1">
+                            <span class="block truncate font-semibold {{ $band['loose'] ? 'text-amber-700' : 'text-slate-800' }}">{{ $band['name'] }}</span>
+                            <span class="text-xs text-slate-500">{{ $band['row']->kinds }} {{ $band['loose'] ? 'barang' : 'model' }}{{ $band['serial'] ? ' · per SN' : '' }}</span>
+                        </span>
+                        <span class="text-right">
+                            <span class="block text-lg leading-tight font-bold text-slate-900">{{ number_format((int) $band['row']->total, 0, ',', '.') }}</span>
+                            <span class="text-[11px] text-slate-400">total stok</span>
+                        </span>
+                        <i data-lucide="chevron-right" class="h-4 w-4 shrink-0 text-slate-300 transition group-hover:text-indigo-500"></i>
+                    </a>
+                    <ul class="grid gap-x-4 border-t border-slate-100 px-2 py-2 sm:grid-cols-2 xl:grid-cols-3">
+                        @foreach ($held->take($preview) as $stock)
+                            @php
+                                $low = $showLow && $stock->item->isLow((int) $stock->quantity);
+                            @endphp
+                            <li class="flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-slate-50">
+                                <span class="min-w-0 flex-1">
+                                    <span class="block truncate font-medium text-slate-800" title="{{ $stock->item->name }}">{{ $stock->item->name }}</span>
+                                    <span class="block truncate text-xs text-slate-500"><span class="font-mono">{{ $stock->item->code }}</span>{{ ($stock->item->variant || $stock->item->brand) ? ' · '.collect([$stock->item->variant, $stock->item->brand])->filter()->implode(' · ') : '' }}</span>
+                                </span>
+                                <span class="shrink-0 text-right {{ $low ? 'text-rose-600' : 'text-slate-900' }}">
+                                    <span class="font-semibold">{{ number_format((int) $stock->quantity, 0, ',', '.') }}</span>
+                                    <span class="text-xs text-slate-500">{{ $stock->item->unit }}</span>
+                                    @if ($low)
+                                        <span class="block text-[11px] font-medium">stok menipis</span>
+                                    @endif
+                                </span>
+                            </li>
+                        @endforeach
+                    </ul>
+                    @if ($held->count() > $preview)
+                        <a href="{{ $band['url'] }}" class="flex items-center justify-center gap-1 border-t border-slate-100 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-50/60">
+                            Lihat semua {{ $held->count() }} barang<i data-lucide="arrow-right" class="h-3.5 w-3.5"></i>
+                        </a>
+                    @endif
+                </div>
+            @empty
+                <p class="py-8 text-center text-slate-400">Belum ada stok</p>
+            @endforelse
         </div>
     @else
     {{-- Category chips: only categories that hold something here, plus the one being filtered. --}}

@@ -226,6 +226,7 @@ class SerialUnit extends Model
                 StockMovementType::KIRIM => [$nodes === [] ? $warehouse($move->fromWarehouse, 'Stok', null) : null, $warehouse($move->toWarehouse, 'Dikirim', $date)],
                 StockMovementType::RETUR => $warehouse($move->toWarehouse, $move->fromWarehouse ? 'Retur' : 'Kembali dari pelanggan', $date),
                 StockMovementType::KOREKSI => $warehouse($move->toWarehouse, 'Batal pemakaian', $date),
+                StockMovementType::PENYESUAIAN => null,
                 StockMovementType::JUAL => $push('mitra', $move->sale?->buyer_name ?? 'Pembeli', 'Dijual', $date),
                 StockMovementType::PAKAI => [
                     $nodes === [] ? $warehouse($move->fromWarehouse, 'Stok', null) : null,

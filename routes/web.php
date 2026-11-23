@@ -25,6 +25,7 @@ use App\Http\Controllers\TicketController;
 use App\Http\Controllers\TicketShareController;
 use App\Http\Controllers\TrackingController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\StockAdjustmentController;
 use App\Http\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
 
@@ -153,6 +154,12 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::get('/telegram-logs', [ReportController::class, 'telegramLogs'])->middleware('menu:telegram_logs')->name('telegram.logs');
+
+    // Manual stock corrections: warehouse team and supervisors only; the log on that page is for supervisors.
+    Route::middleware('role:GUDANG,SPV')->group(function () {
+        Route::get('/gudang/adjust-stok', [StockAdjustmentController::class, 'index'])->name('stock-adjustments.index');
+        Route::post('/gudang/adjust-stok', [StockAdjustmentController::class, 'store'])->name('stock-adjustments.store');
+    });
 
     Route::middleware('role:SPV')->group(function () {
         Route::resource('users', UserController::class)->except('show');

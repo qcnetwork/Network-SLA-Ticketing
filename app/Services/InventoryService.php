@@ -19,13 +19,16 @@ use App\Models\Partner;
 use App\Models\Sale;
 use App\Models\SerialUnit;
 use App\Models\Stock;
+use App\Models\StockAdjustment;
 use App\Models\StockMovement;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Warehouse;
+use App\Notifications\InAppNotification;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -219,9 +222,15 @@ class InventoryService
                     if ($quantity < 1) {
                         throw ValidationException::withMessages(['materials' => "Jumlah {$item->code} minimal 1"]);
                     }
-                    $item->tracks_serial
-                        ? $this->ensureLoose($warehouse, $item, $quantity, 'materials')
-                        : $this->ensureAvailable($warehouse, $item, $quantity, 'materials', showLeft: false);
+                    // A counted item (cable, connectors) may be reported beyond what the warehouse knows the technician
+                    // holds: they often still have leftovers of their own that were never recorded. The warehouse is
+                    // told when the approval takes the stock below zero and adjusts it after checking.
+                    // Only something the technician has carried, though: an item never handed to them is a typo.
+                    if ($item->tracks_serial) {
+                        $this->ensureLoose($warehouse, $item, $quantity, 'materials');
+                    } elseif (! Stock::query()->where('warehouse_id', $warehouse->id)->where('item_id', $item->id)->exists()) {
+                        throw ValidationException::withMessages(['materials' => "{$item->code} tidak pernah dibawa {$holder->name}, pilih gudang teknisi yang memakainya"]);
+                    }
                 }
 
                 return $request->lines()->create([
@@ -285,6 +294,7 @@ class InventoryService
                 'material_request_id' => $request->id,
                 'user_id' => $actor->id,
             ]);
+            $short = [];
             foreach ($request->lines as $line) {
                 $usage->lines()->create([
                     'item_id' => $line->item_id,
@@ -303,15 +313,24 @@ class InventoryService
 
                     continue;
                 }
+                // A counted item is taken even past zero (see requestForTicket); an SN item's loose stock is not.
+                $counted = ! $line->item->tracks_serial;
                 try {
-                    $this->move(StockMovementType::PAKAI, $line->item, $line->quantity, $line->warehouse, null, $actor, $line->notes, $ticket, usage: $usage);
+                    $this->move(StockMovementType::PAKAI, $line->item, $line->quantity, $line->warehouse, null, $actor, $line->notes, $ticket, usage: $usage, allowShort: $counted);
                 } catch (ValidationException $e) {
                     throw ValidationException::withMessages(['material_request' => $e->errors()['quantity'] ?? $e->getMessage()]);
+                }
+                if ($counted && ($left = $this->stockQuantity($line->warehouse, $line->item)) < 0) {
+                    $short[] = [$line, $left];
                 }
             }
 
             // The ticket's customer now has this material (Gudang Pelanggan).
             app(CustomerMaterialService::class)->recordInstall($usage->refresh(), $actor, now());
+
+            if ($short !== []) {
+                $this->notifyMinus($ticket, $short);
+            }
 
             return $this->review($request, MaterialRequestStatus::APPROVED, TicketAction::MATERIAL_DISETUJUI, $actor, $notes);
         });
@@ -547,6 +566,57 @@ class InventoryService
     /**
      * Mark a sale paid (or back to unpaid when it was ticked by mistake).
      */
+    /**
+     * Set a warehouse's stock of an item to the figure actually counted, e.g. a technician's stock gone minus
+     * after more was entered than they held. The difference is a PENYESUAIAN movement, and the figure before,
+     * after and the reason go to the adjustment log that only supervisors read. An SN item can only be set as
+     * low as the units with an SN it holds: those move by SN, not by a count.
+     */
+    public function adjust(Warehouse $warehouse, Item $item, int $counted, User $actor, string $reason): StockAdjustment
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw ValidationException::withMessages(['reason' => 'Isi alasan adjust stok']);
+        }
+        if ($counted < 0) {
+            throw ValidationException::withMessages(['quantity' => 'Stok hasil hitung tidak boleh minus']);
+        }
+
+        return DB::transaction(function () use ($warehouse, $item, $counted, $actor, $reason) {
+            $stock = $this->stock($warehouse, $item);
+            $before = (int) $stock->quantity;
+            if ($counted === $before) {
+                throw ValidationException::withMessages(['quantity' => "Stok {$item->code} di {$warehouse->name} sudah {$before} {$item->unit}, tidak ada yang diubah"]);
+            }
+            if ($item->tracks_serial) {
+                $units = SerialUnit::query()->where('warehouse_id', $warehouse->id)->where('item_id', $item->id)->count();
+                if ($counted < $units) {
+                    throw ValidationException::withMessages(['quantity' => "{$warehouse->name} masih memegang {$units} unit {$item->code} ber-SN; stok tidak bisa di bawah {$units}. Unit ber-SN dipindah lewat retur / pemakaian SN."]);
+                }
+            }
+            if ($counted < ($claimed = $this->requested($warehouse, $item))) {
+                throw ValidationException::withMessages(['quantity' => "{$claimed} {$item->unit} {$item->code} sedang diajukan di resume yang belum di-ACC; ACC / tolak dulu atau isi minimal {$claimed}"]);
+            }
+
+            $difference = $counted - $before;
+            $notes = "Stok {$before} → {$counted}";
+            $movement = $difference > 0
+                ? $this->move(StockMovementType::PENYESUAIAN, $item, $difference, null, $warehouse, $actor, $notes)
+                : $this->move(StockMovementType::PENYESUAIAN, $item, -$difference, $warehouse, null, $actor, $notes);
+
+            return StockAdjustment::query()->create([
+                'warehouse_id' => $warehouse->id,
+                'item_id' => $item->id,
+                'stock_movement_id' => $movement->id,
+                'user_id' => $actor->id,
+                'quantity_before' => $before,
+                'quantity_after' => $counted,
+                'difference' => $difference,
+                'reason' => mb_substr($reason, 0, 255),
+            ]);
+        });
+    }
+
     public function setPayment(Sale $sale, PaymentStatus $status, User $actor, ?string $notes = null): Sale
     {
         $notes = trim((string) $notes) ?: null;
@@ -836,11 +906,11 @@ class InventoryService
      * Record a movement and apply it to stock. A converted send records both rows from main to the technician,
      * but only takes the source item from main ($give false) and only gives the target item to the technician ($take false).
      */
-    private function move(StockMovementType $type, Item $item, int $quantity, ?Warehouse $from, ?Warehouse $to, User $actor, ?string $notes, ?Ticket $ticket = null, ?SerialUnit $serial = null, ?Sale $sale = null, ?MaterialUsage $usage = null, bool $take = true, bool $give = true): StockMovement
+    private function move(StockMovementType $type, Item $item, int $quantity, ?Warehouse $from, ?Warehouse $to, User $actor, ?string $notes, ?Ticket $ticket = null, ?SerialUnit $serial = null, ?Sale $sale = null, ?MaterialUsage $usage = null, bool $take = true, bool $give = true, bool $allowShort = false): StockMovement
     {
         if ($from && $take) {
             $stock = $this->stock($from, $item);
-            if ($stock->quantity < $quantity) {
+            if (! $allowShort && $stock->quantity < $quantity) {
                 throw ValidationException::withMessages([
                     'quantity' => "Stok {$item->code} di {$from->name} tidak cukup (sisa {$stock->quantity} {$item->unit})",
                 ]);
@@ -864,6 +934,29 @@ class InventoryService
             'user_id' => $actor->id,
             'notes' => $notes ? mb_substr($notes, 0, 255) : null,
         ]);
+    }
+
+    /**
+     * Tell the warehouse team that an approved resume left a technician's stock below zero, one notice per item,
+     * each opening Adjust Stok on that warehouse and item. Sent inside the approval's transaction, so a failed
+     * approval leaves no notice behind.
+     *
+     * @param  list<array{0: MaterialRequestLine, 1: int}>  $short
+     */
+    private function notifyMinus(Ticket $ticket, array $short): void
+    {
+        $team = User::query()->where('role', Role::GUDANG)->where('active', true)->get();
+        if ($team->isEmpty()) {
+            return;
+        }
+        foreach ($short as [$line, $left]) {
+            Notification::send($team, new InAppNotification(
+                "Stok minus · {$line->warehouse->name}",
+                "{$line->item->code} {$line->item->name} terpakai {$line->quantity} {$line->item->unit} di {$ticket->ticket_number}, stok jadi {$left} {$line->item->unit}. Cek sisa stok pribadi teknisi lalu adjust.",
+                route('stock-adjustments.index', ['gudang' => $line->warehouse_id, 'barang' => $line->item->code], absolute: false),
+                'alert-triangle',
+            ));
+        }
     }
 
     private function stock(Warehouse $warehouse, Item $item): Stock

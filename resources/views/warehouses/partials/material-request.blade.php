@@ -21,6 +21,12 @@
                     @if ($line->notes)<span class="text-xs text-slate-500">({{ $line->notes }})</span>@endif
                 </span>
                 <span class="text-xs text-slate-500"><span class="font-semibold text-slate-800">× {{ $line->quantity }} {{ $line->item->unit }}</span> · {{ $line->warehouse->name }}</span>
+                @if ($canReview && ! $line->item->tracks_serial && ($held = $line->heldInWarehouse()) < $line->quantity)
+                    <p class="w-full rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                        <i data-lucide="alert-triangle" class="mr-0.5 inline h-3.5 w-3.5 align-[-2px]"></i>
+                        Melebihi stok sistem {{ $line->warehouse->name }} ({{ $held }} {{ $line->item->unit }}). Tetap bisa di-ACC; stok jadi {{ $held - $line->quantity }} dan Gudang dapat notifikasi untuk adjust.
+                    </p>
+                @endif
             </div>
         @endforeach
     </div>

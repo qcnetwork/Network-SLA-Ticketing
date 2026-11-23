@@ -142,13 +142,6 @@ class InventoryTest extends TestCase
 
         $this->post("/tickets/{$ticket->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI", [
             'notes' => 'Ganti adaptor',
-            'materials' => [['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 5]],
-        ])->assertSessionHasErrors('materials');
-        $this->assertSame(TicketStatus::PERBAIKAN, $ticket->fresh()->status);
-        $this->assertSame(3, $this->quantity(Warehouse::of($this->technician), $this->adaptor));
-
-        $this->post("/tickets/{$ticket->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI", [
-            'notes' => 'Ganti adaptor',
             'materials' => [['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 2, 'notes' => 'adaptor lama mati']],
         ])->assertSessionHasNoErrors();
 
@@ -161,12 +154,8 @@ class InventoryTest extends TestCase
         $this->assertSame(MaterialRequestStatus::PENDING, $request->status);
         $this->assertStringContainsString('ADP001 ADAPTOR 12 V 1 A × 2 pcs dari Gudang Tim Baim (adaptor lama mati)', $ticket->histories->last()->notes);
 
-        // The two adaptors are spoken for: another resume or a return can only use the one left.
+        // The two adaptors are spoken for: a return can only take the one left.
         $next = Ticket::factory()->status(TicketStatus::PERBAIKAN)->assignedTo($this->technician)->create(['repair_started_at' => now()]);
-        $this->post("/tickets/{$next->ticket_number}/actions/LAPOR_PERBAIKAN_SELESAI", [
-            'notes' => 'Ganti adaptor',
-            'materials' => [['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 2]],
-        ])->assertSessionHasErrors('materials');
         $own = Warehouse::of($this->technician);
         $this->actingAs($this->warehouse)->post("/gudang/{$own->id}/retur", ['item' => 'ADP001', 'quantity' => 2])->assertSessionHasErrors('quantity');
 
@@ -273,11 +262,9 @@ class InventoryTest extends TestCase
             ->assertSessionHasErrors('materials');
         $this->post($url, ['notes' => 'Ganti adaptor', 'materials' => [['technician_id' => $helpdesk->id, 'code' => 'KBL003', 'quantity' => 5]]])
             ->assertSessionHasErrors('materials');
-        $this->post($url, ['notes' => 'Ganti adaptor', 'materials' => [['technician_id' => $outsider->id, 'code' => 'KBL003', 'quantity' => 50]]])
-            ->assertSessionHasErrors(['materials' => "Stok KBL003 di Gudang {$outsider->name} tidak cukup"]);
         // The partner does not carry adaptors.
         $this->post($url, ['notes' => 'Ganti adaptor', 'materials' => [['technician_id' => $partner->id, 'code' => 'ADP001', 'quantity' => 1]]])
-            ->assertSessionHasErrors('materials');
+            ->assertSessionHasErrors(['materials' => 'ADP001 tidak pernah dibawa Tim Dian, pilih gudang teknisi yang memakainya']);
 
         $this->post($url, ['notes' => 'Ganti adaptor dan tarik kabel', 'materials' => [
             ['technician_id' => $this->technician->id, 'code' => 'ADP001', 'quantity' => 1],

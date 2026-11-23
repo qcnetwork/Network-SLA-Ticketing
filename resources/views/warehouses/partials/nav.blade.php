@@ -11,6 +11,10 @@
         ['Mitra', 'partners.index', 'handshake', ['partners.*']],
         ['Master Barang', 'items.index', 'boxes', ['items.*']],
     ];
+    // Manual stock correction is for the warehouse team and supervisors only, whatever menus are granted.
+    if (auth()->user()?->hasRole(App\Enums\Role::GUDANG, App\Enums\Role::SPV)) {
+        $tabs[] = ['Adjust Stok', 'stock-adjustments.index', 'sliders-horizontal', ['stock-adjustments.*']];
+    }
 @endphp
 @if ($manager)
     <nav class="mb-5 overflow-x-auto border-b border-slate-200" aria-label="Menu gudang">

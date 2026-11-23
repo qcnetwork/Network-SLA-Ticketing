@@ -40,6 +40,15 @@
         ['Menunggu ACC', $materialRequests->count(), 'hourglass', $materialRequests->isEmpty() ? 'slate' : 'amber', 'pengajuan material'],
     ]])
 
+    @php($minusCount = auth()->user()->hasRole(App\Enums\Role::GUDANG, App\Enums\Role::SPV) ? App\Models\Stock::query()->where('quantity', '<', 0)->count() : 0)
+    @if ($minusCount)
+        <a href="{{ route('stock-adjustments.index') }}" class="mb-6 flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 transition hover:border-rose-300">
+            <i data-lucide="alert-triangle" class="h-5 w-5 shrink-0 text-rose-600"></i>
+            <span class="flex-1"><b>{{ $minusCount }} stok minus</b> dari material terpakai yang melebihi stok teknisi. Cek sisa stok pribadi teknisi lalu adjust.</span>
+            <span class="flex shrink-0 items-center gap-1 font-semibold">Adjust Stok<i data-lucide="arrow-right" class="h-4 w-4"></i></span>
+        </a>
+    @endif
+
     <div class="grid gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">
             {{-- Outside the warehouse team, searching the stock for an SN shows where that unit is. --}}

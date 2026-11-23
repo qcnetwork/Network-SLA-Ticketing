@@ -183,9 +183,13 @@ class TicketController extends Controller
         $claimed = MaterialRequestLine::query()->pending()->whereHas('warehouse', $technicianWarehouse)->get()
             ->groupBy(fn (MaterialRequestLine $line) => "{$line->warehouse_id}:{$line->item_id}")->map->sum('quantity');
 
-        $stock = Stock::query()->with(['item', 'warehouse.user'])->where('quantity', '>', 0)->whereHas('warehouse', $technicianWarehouse)->get()
+        // A counted item the technician has held stays pickable at zero or below: they may still have leftovers
+        // of their own the warehouse never recorded, and the resume may report more than the system knows of.
+        $stock = Stock::query()->with(['item', 'warehouse.user'])->whereHas('warehouse', $technicianWarehouse)
+            ->where(fn ($q) => $q->where('quantity', '>', 0)->orWhereHas('item', fn ($item) => $item->where('tracks_serial', false)->where('active', true)))
+            ->get()
             ->each(fn (Stock $stock) => $stock->quantity -= $claimed["{$stock->warehouse_id}:{$stock->item_id}"] ?? 0)
-            ->filter(fn (Stock $stock) => $stock->quantity > 0)
+            ->filter(fn (Stock $stock) => $stock->quantity > 0 || ! $stock->item->tracks_serial)
             ->sortBy('item.code')
             ->groupBy(fn (Stock $stock) => $stock->warehouse->user_id);
         $holders = $ticket->technicians

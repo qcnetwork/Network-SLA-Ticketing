@@ -44,6 +44,16 @@ class MaterialRequestLine extends Model
         return $query->whereHas('request', fn (Builder $q) => $q->where('status', MaterialRequestStatus::PENDING));
     }
 
+    /**
+     * What the technician's warehouse holds of this counted item right now, so the warehouse sees before
+     * approving that a resume reports more than the system knows of. Null for a modem picked by SN.
+     */
+    public function heldInWarehouse(): ?int
+    {
+        return $this->serial_unit_id ? null
+            : (int) Stock::query()->where('warehouse_id', $this->warehouse_id)->where('item_id', $this->item_id)->value('quantity');
+    }
+
     public function describe(): string
     {
         $what = $this->serialUnit
