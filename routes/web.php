@@ -93,6 +93,7 @@ Route::middleware('auth')->group(function () {
         Route::post('/gudang/masuk-sn', [WarehouseController::class, 'receiveSerials'])->name('warehouses.receive-serials');
         Route::post('/gudang/kirim-sn', [WarehouseController::class, 'sendSerials'])->name('warehouses.send-serials');
         Route::get('/gudang/unit-sn', [WarehouseController::class, 'availableSerials'])->name('warehouses.available-serials');
+        Route::get('/gudang/unit-sn/cari', [WarehouseController::class, 'findSerials'])->name('warehouses.find-serials');
         Route::put('/gudang/unit-sn/{serialUnit}', [WarehouseController::class, 'updateSerial'])->name('warehouses.update-serial');
         // Units that left stock ("kotor"): where each SN went, and one unit's whole history.
         Route::get('/gudang/tracking', [TrackingController::class, 'index'])->name('tracking.index');

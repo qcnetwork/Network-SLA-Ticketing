@@ -144,6 +144,35 @@
                             @csrf
                             <input type="hidden" name="_tab" value="kirim">
                             @include('warehouses.partials.technician-select', ['selected' => old('_tab') === 'kirim' ? old('technician_id') : null])
+
+                            {{-- Quick SN search: a few digits from the label find the unit in any item, no scanner needed. --}}
+                            <div class="relative" x-data="snFinder({ url: @js(route('warehouses.find-serials')) })" @click.outside="open = false">
+                                <label class="label" for="sn-finder">Cari SN langsung</label>
+                                <div class="relative">
+                                    <i data-lucide="search" class="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-slate-400"></i>
+                                    <input id="sn-finder" x-ref="input" x-model="q" @input="onInput()" @focus="open = results.length > 0"
+                                        @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)" @keydown.enter.prevent="pickActive()" @keydown.escape="open = false"
+                                        class="input pl-9 font-mono" autocomplete="off" autocapitalize="characters" spellcheck="false"
+                                        placeholder="Ketik 4 digit terakhir SN / MAC">
+                                    <span x-show="searching" x-cloak class="absolute top-2.5 right-3 text-xs text-slate-400">mencari...</span>
+                                </div>
+                                <p class="mt-1 text-xs text-slate-500">Tanpa scan: ketik minimal 3 karakter dari SN di label, lalu klik unitnya. Barangnya terpilih otomatis dan SN langsung dicentang.</p>
+                                <div x-show="open" x-cloak class="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                                    <template x-for="(unit, index) in results" :key="unit.sn">
+                                        <button type="button" @click="pick(unit)" @mouseenter="active = index" :class="index === active ? 'bg-indigo-50' : ''"
+                                            class="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm">
+                                            <span class="min-w-0">
+                                                <span class="block font-mono text-slate-800"><span x-text="parts(unit.sn)[0]"></span><b class="text-indigo-700" x-text="parts(unit.sn)[1]"></b><span x-text="parts(unit.sn)[2]"></span></span>
+                                                <span class="block truncate text-xs text-slate-500" x-text="unit.name"></span>
+                                            </span>
+                                            <span x-show="unit.mac" class="shrink-0 font-mono text-xs text-slate-400" x-text="unit.mac"></span>
+                                        </button>
+                                    </template>
+                                    <p x-show="! results.length" class="px-3 py-3 text-center text-sm text-slate-400">Tidak ada SN itu di Gudang Utama</p>
+                                    <p x-show="results.length >= 30" class="border-t border-slate-100 px-3 py-1.5 text-center text-xs text-slate-400">Ketik lebih banyak digit untuk mempersempit</p>
+                                </div>
+                            </div>
+
                             <div>
                                 <label class="label">Barang</label>
                                 @include('warehouses.partials.item-picker', ['placeholder' => 'Cari barang yang ada di Gudang Utama'])
@@ -151,7 +180,7 @@
 
                             {{-- SN item: tick the units to send. --}}
                             <div x-show="item && isSerial" x-cloak class="space-y-2"
-                                x-data="serialPicker({ url: @js(route('warehouses.available-serials')), warehouse: @js($main->id) })" x-effect="load(item)">
+                                x-data="serialPicker({ url: @js(route('warehouses.available-serials')), warehouse: @js($main->id) })" x-effect="load(item); claim()">
                                 <div class="flex items-center justify-between gap-2">
                                     <label class="label mb-0">Pilih SN yang dikirim</label>
                                     <span class="text-xs font-semibold" :class="selected.length ? 'text-indigo-700' : 'text-slate-400'" x-text="`${selected.length} dari ${units.length} dipilih`"></span>
@@ -159,7 +188,7 @@
                                 <div class="relative">
                                     <i data-lucide="scan-barcode" class="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-slate-400"></i>
                                     <input x-ref="sn" x-model="filter" @keydown.enter.prevent="scan()" @input="error = ''" class="input pl-9 font-mono text-sm" autocomplete="off" spellcheck="false"
-                                        placeholder="Cari SN / MAC, atau scan barcode">
+                                        placeholder="Ketik 4 digit terakhir SN / MAC, atau scan">
                                 </div>
                                 <div class="flex flex-wrap items-center gap-2 text-xs">
                                     <span class="text-slate-500">Ambil</span>

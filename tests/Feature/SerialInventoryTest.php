@@ -202,6 +202,25 @@ class SerialInventoryTest extends TestCase
         $this->actingAs($this->technician)->getJson('/gudang/unit-sn?item=MDM031')->assertForbidden();
     }
 
+    public function test_a_unit_to_send_is_found_from_the_last_digits_of_its_sn_across_items(): void
+    {
+        $this->receive([['sn' => 'ZTEG12345678', 'mac' => '28:6D:DA:0C:D4:61'], ['sn' => 'ZTEG56780000'], ['sn' => 'ZTEG99995678']])->assertSessionHasNoErrors();
+        Item::query()->create(['code' => 'ONT001', 'name' => 'HUAWEI HG8245', 'tracks_serial' => true]);
+        $this->post('/gudang/masuk-sn', ['item' => 'ONT001', 'serials' => [['sn' => 'HWTC00005678']]])->assertSessionHasNoErrors();
+        $this->post('/gudang/kirim-sn', ['technician_id' => $this->technician->id, 'serials' => [['sn' => 'ZTEG99995678']]])->assertSessionHasNoErrors();
+
+        // Any item, only what is still in Gudang Utama, SNs ending with the digits first.
+        $found = $this->getJson('/gudang/unit-sn/cari?q=5678')->assertOk()->json();
+        $this->assertSame(['ZTEG12345678', 'HWTC00005678', 'ZTEG56780000'], array_column($found, 'sn'));
+        $this->assertSame(['MDM031', 'FIBERHOME HG6145D2'], [$found[0]['item'], $found[0]['name']]);
+        // By MAC too (any separators), and too short a text finds nothing.
+        $this->assertSame(['ZTEG12345678'], array_column($this->getJson('/gudang/unit-sn/cari?q=0c-d4-61')->json(), 'sn'));
+        $this->getJson('/gudang/unit-sn/cari?q=56')->assertExactJson([]);
+        $this->get('/gudang')->assertOk()->assertSee('Cari SN langsung');
+
+        $this->actingAs($this->technician)->getJson('/gudang/unit-sn/cari?q=5678')->assertForbidden();
+    }
+
     public function test_a_wrong_or_missing_sn_and_mac_can_be_corrected(): void
     {
         $this->modem->update(['scans_mac' => true]);

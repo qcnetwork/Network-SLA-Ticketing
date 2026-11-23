@@ -17,6 +17,8 @@ export default ({ catalog, serialAction = '', countAction = '', selected = '', c
     open: false,
     active: 0,
     quantity: '',
+    // An SN found with the quick search: its item is picked and the serialPicker ticks it once loaded.
+    wantSn: null,
 
     init() {
         const code = String(selected).split('·')[0].trim().toUpperCase();
@@ -78,6 +80,17 @@ export default ({ catalog, serialAction = '', countAction = '', selected = '', c
             window.renderIcons?.();
             (this.isSerial ? this.$root.querySelector('[x-ref="sn"]') : this.$refs.quantity)?.focus();
         });
+    },
+
+    pickSerial(unit) {
+        const item = this.catalog.find((candidate) => candidate.code === unit.item);
+        if (!item) {
+            return;
+        }
+        if (this.item?.code !== item.code) {
+            this.choose(item);
+        }
+        this.wantSn = unit.sn;
     },
 
     clear() {

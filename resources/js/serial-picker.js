@@ -1,7 +1,8 @@
 /**
  * Pick SN units from a list instead of knowing or scanning each one. Sits inside a stockForm: when the picked
  * item tracks SN, the units of that item in the warehouse are fetched (oldest first) and shown as a checklist.
- * The box above the list filters by SN or MAC; Enter on an exact SN (a scanner works too) ticks that unit.
+ * The box above the list filters by any part of the SN or MAC (the last 4 digits are usually enough); Enter on an
+ * exact SN (a scanner works too) or on the only match left ticks that unit.
  * "Ambil N" ticks the N oldest units not yet ticked, handy for rolls or poles where any unit will do.
  * Ticked units post as serials[i][sn].
  */
@@ -44,6 +45,20 @@ export default ({ url, warehouse }) => ({
         }
     },
 
+    // Ticks the SN the quick search asked for (the parent's wantSn) once this item's units are in.
+    claim() {
+        const sn = this.wantSn;
+        if (!sn || this.loading || this.loadedFor === null) {
+            return;
+        }
+        const unit = this.units.find((candidate) => candidate.sn === sn);
+        if (unit && !this.isChecked(unit)) {
+            this.selected = [...this.selected, unit.sn];
+        }
+        this.error = unit ? '' : `SN ${sn} tidak ada di daftar stok barang ini`;
+        this.wantSn = null;
+    },
+
     get shown() {
         const needle = clean(this.filter).replace(/[:-]/g, '');
         if (!needle) {
@@ -70,7 +85,9 @@ export default ({ url, warehouse }) => ({
         }
         const unit = this.units.find((candidate) => candidate.sn === sn) || (this.shown.length === 1 ? this.shown[0] : null);
         if (!unit) {
-            this.error = `SN ${sn} tidak ada di daftar stok barang ini`;
+            this.error = this.shown.length > 1
+                ? `${this.shown.length} SN cocok dengan "${this.filter.trim()}", centang yang dimaksud di daftar atau ketik lebih banyak digit`
+                : `SN ${sn} tidak ada di daftar stok barang ini`;
 
             return;
         }

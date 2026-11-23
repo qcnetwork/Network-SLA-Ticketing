@@ -249,6 +249,29 @@ class WarehouseController extends Controller
     }
 
     /**
+     * Units in Gudang Utama whose SN or MAC contains what was typed, across all items, so a unit can be
+     * found from the last few digits on its label without picking its item or scanning. Units whose SN
+     * ends with the text come first.
+     */
+    public function findSerials(Request $request): JsonResponse
+    {
+        $needle = preg_replace('/[\s:-]+/', '', strtoupper((string) $request->query('q', '')));
+        if (strlen($needle) < 3) {
+            return response()->json([]);
+        }
+        $like = '%'.str_replace(['%', '_'], ['\%', '\_'], $needle).'%';
+
+        return response()->json(SerialUnit::query()->with('item:id,code,name')
+            ->where('warehouse_id', Warehouse::main()->id)
+            ->where(fn ($query) => $query->where('serial_number', 'like', $like)->orWhere('mac', 'like', $like))
+            ->whereNotIn('id', MaterialRequestLine::query()->pending()->whereNotNull('serial_unit_id')->select('serial_unit_id'))
+            ->orderBy('id')->limit(200)->get()
+            ->sortBy(fn (SerialUnit $unit) => str_ends_with($unit->serial_number, $needle) ? 0 : 1)
+            ->take(30)->values()
+            ->map(fn (SerialUnit $unit) => ['sn' => $unit->serial_number, 'mac' => $unit->formattedMac(), 'item' => $unit->item->code, 'name' => $unit->item->name]));
+    }
+
+    /**
      * Checks one scan as it happens, so a wrong unit is caught at the scanner rather than on save.
      * With `new`, the SN must not be registered yet; with `warehouse`, the unit must be sitting there.
      */
