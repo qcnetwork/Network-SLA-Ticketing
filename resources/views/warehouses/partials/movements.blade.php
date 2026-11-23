@@ -26,6 +26,9 @@
                         @else
                             {{ $movement->fromWarehouse?->name ?? 'Pemasok' }} → {{ $movement->toWarehouse?->name ?? ($movement->ticket ? 'Pelanggan' : ($movement->sale?->buyer_name ?? '-')) }}
                         @endif
+                        @if ($movement->takenBy)
+                            · <span class="font-medium text-amber-700">diambil {{ $movement->takenBy->name }}</span>
+                        @endif
                         @if ($movement->sale)
                             · <a href="{{ route('sales.show', $movement->sale) }}" class="font-mono text-indigo-700 hover:underline">{{ $movement->sale->sale_number }}</a>
                         @endif

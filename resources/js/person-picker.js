@@ -3,11 +3,12 @@
  * arrows + Enter or a click picks, Esc closes. The id posts through a hidden input; since the browser cannot
  * check a hidden "required", submitting without a pick is stopped here with a message.
  *
- * `people` rows are {id, name, role}.
+ * `people` rows are {id, name, role}. With `required: false` the pick may stay empty (e.g. "Diambil oleh",
+ * where empty means the recipient collected it).
  */
 const normalize = (text) => String(text).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-export default ({ people, selected = '', message = 'Pilih penerima dulu' }) => ({
+export default ({ people, selected = '', message = 'Pilih penerima dulu', required = true }) => ({
     people,
     picked: people.find((person) => String(person.id) === String(selected)) || null,
     query: '',
@@ -17,7 +18,7 @@ export default ({ people, selected = '', message = 'Pilih penerima dulu' }) => (
 
     init() {
         this.$el.closest('form')?.addEventListener('submit', (event) => {
-            if (!this.picked) {
+            if (required && !this.picked) {
                 event.preventDefault();
                 this.error = message;
                 this.$refs.input.focus();

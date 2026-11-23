@@ -219,13 +219,29 @@ class WarehouseController extends Controller
 
     public function sendSerials(Request $request): RedirectResponse
     {
-        $data = $this->validateSerials($request, [
-            'technician_id' => ['required', Rule::exists('users', 'id')->whereIn('role', array_map(fn (Role $role) => $role->value, Role::stockHolders()))->where('active', true)],
-        ]);
+        $data = $this->validateSerials($request, $this->recipientRules());
         $technician = User::query()->findOrFail($data['technician_id']);
-        $count = $this->inventory->sendSerials(array_column($data['serials'], 'sn'), $technician, $request->user(), $data['notes'] ?? null);
+        $takenBy = $this->collector($data, $technician);
+        $count = $this->inventory->sendSerials(array_column($data['serials'], 'sn'), $technician, $request->user(), $data['notes'] ?? null, $takenBy);
 
-        return back()->with('success', "{$count} unit dikirim ke {$technician->name}");
+        return back()->with('success', "{$count} unit dikirim ke {$technician->name}".($takenBy ? ", diambil {$takenBy->name}" : ''));
+    }
+
+    /**
+     * Whose stock it goes into, and who picked it up when that was someone else (any active technician or helpdesk).
+     */
+    private function recipientRules(): array
+    {
+        $holder = fn () => Rule::exists('users', 'id')->whereIn('role', array_map(fn (Role $role) => $role->value, Role::stockHolders()))->where('active', true);
+
+        return ['technician_id' => ['required', $holder()], 'taken_by' => ['nullable', 'integer', $holder()]];
+    }
+
+    private function collector(array $data, User $technician): ?User
+    {
+        $id = (int) ($data['taken_by'] ?? 0);
+
+        return $id && $id !== $technician->id ? User::query()->find($id) : null;
     }
 
     public function returnSerials(Request $request, Warehouse $warehouse): RedirectResponse
@@ -373,15 +389,15 @@ class WarehouseController extends Controller
 
     public function send(Request $request): RedirectResponse
     {
-        $data = $this->validateMovement($request, [
-            'technician_id' => ['required', Rule::exists('users', 'id')->whereIn('role', array_map(fn (Role $role) => $role->value, Role::stockHolders()))->where('active', true)],
-        ]);
+        $data = $this->validateMovement($request, $this->recipientRules());
         $item = $this->inventory->findItem($data['item'], 'item');
         $technician = User::query()->findOrFail($data['technician_id']);
-        $this->inventory->send($item, $data['quantity'], $technician, $request->user(), $data['notes'] ?? null);
+        $takenBy = $this->collector($data, $technician);
+        $this->inventory->send($item, $data['quantity'], $technician, $request->user(), $data['notes'] ?? null, $takenBy);
         $converted = $item->convertsOnSend() ? " (diterima sebagai {$item->sendAs->code} × ".($data['quantity'] * $item->send_ratio)." {$item->sendAs->unit})" : '';
 
-        return back()->with('success', "{$item->code} × {$data['quantity']} {$item->unit} dikirim ke {$technician->name}{$converted}");
+        return back()->with('success', "{$item->code} × {$data['quantity']} {$item->unit} dikirim ke {$technician->name}{$converted}"
+            .($takenBy ? ", diambil {$takenBy->name}" : ''));
     }
 
     public function returnStock(Request $request, Warehouse $warehouse): RedirectResponse
@@ -432,7 +448,7 @@ class WarehouseController extends Controller
                 : collect(),
             'units' => $warehouse->serialUnits()->with('item')->orderBy('item_id')->orderBy('serial_number')->get()->groupBy('item_id'),
             'movements' => StockMovement::query()
-                ->with(['item', 'serialUnit', 'fromWarehouse', 'toWarehouse', 'ticket', 'sale', 'user'])
+                ->with(['item', 'serialUnit', 'fromWarehouse', 'toWarehouse', 'ticket', 'sale', 'user', 'takenBy'])
                 ->where(fn ($q) => $q->where('from_warehouse_id', $warehouse->id)->orWhere('to_warehouse_id', $warehouse->id))
                 ->latest('id')->limit(30)->get(),
         ];

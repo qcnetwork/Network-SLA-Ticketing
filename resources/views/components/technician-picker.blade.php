@@ -7,13 +7,16 @@
     @if ($technicians->isEmpty())
         <p class="text-xs text-rose-600">Belum ada akun teknisi aktif. Minta supervisor menambahkannya.</p>
     @else
-        {{-- Type to search, or open the list and click; each pick becomes a chip. --}}
+        {{-- Type to search, or open the list and click; each pick becomes a chip. Tab takes the highlighted name and
+             stays in the box for the next one (once something was typed or the arrows were used, so tabbing through an
+             untouched form still moves on). Enter does nothing here, so it can neither pick nor send the form by accident. --}}
         <div x-data="{
                 options: @js($options),
                 selected: @js($initial),
                 query: '',
                 open: false,
                 active: 0,
+                navigated: false,
                 get matches() {
                     const term = this.query.trim().toLowerCase();
                     return this.options.filter((option) => ! this.selected.includes(option.id) && option.name.toLowerCase().includes(term));
@@ -26,6 +29,7 @@
                     this.selected.push(option.id);
                     this.query = '';
                     this.active = 0;
+                    this.navigated = false;
                     this.$nextTick(() => window.renderIcons?.());
                 },
                 remove(id) {
@@ -33,12 +37,16 @@
                 },
                 move(step) {
                     this.open = true;
+                    this.navigated = true;
                     const count = this.matches.length;
                     if (count) this.active = (this.active + step + count) % count;
                     this.$nextTick(() => this.$refs.list?.children[this.active]?.scrollIntoView({ block: 'nearest' }));
                 },
-                enter(event) {
-                    if (! this.open || ! this.matches.length) return;
+                tab(event) {
+                    if (event.shiftKey || ! this.open || ! this.matches.length || (this.query.trim() === '' && ! this.navigated)) {
+                        this.open = false;
+                        return;
+                    }
                     event.preventDefault();
                     this.pick(this.matches[this.active]);
                 },
@@ -65,7 +73,7 @@
                         :required="selected.length === 0" role="combobox" aria-autocomplete="list" :aria-expanded="open"
                         @focus="open = true" @click="open = true" @input="open = true; active = 0"
                         @keydown.arrow-down.prevent="move(1)" @keydown.arrow-up.prevent="move(-1)"
-                        @keydown.enter="enter($event)" @keydown.escape="open = false" @keydown.tab="open = false">
+                        @keydown.enter.prevent @keydown.escape="open = false" @keydown.tab="tab($event)">
                     <button type="button" @click="open = ! open" tabindex="-1" class="absolute top-1/2 right-2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600" aria-label="Tampilkan daftar teknisi">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="h-4 w-4 transition" :class="open && 'rotate-180'"><path d="m6 9 6 6 6-6" /></svg>
                     </button>
@@ -78,7 +86,7 @@
                             :class="index === active ? 'bg-indigo-50 text-indigo-700' : 'text-slate-700'"
                             class="flex cursor-pointer items-center justify-between gap-2 px-3 py-2">
                             <span x-text="option.name"></span>
-                            <span x-show="index === active" class="shrink-0 text-xs text-slate-400">Enter</span>
+                            <span x-show="index === active" class="shrink-0 text-xs text-slate-400">Tab</span>
                         </li>
                     </template>
                     <li x-show="! matches.length" class="px-3 py-2 text-xs text-slate-400">Tidak ada teknisi yang cocok</li>

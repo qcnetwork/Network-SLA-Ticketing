@@ -5,6 +5,7 @@
     $tabs = [
         ['Stok', 'warehouses.index', 'warehouse', ['warehouses.index', 'warehouses.show', 'warehouses.category']],
         ['Cari SN', 'tracking.index', 'scan-barcode', ['tracking.*']],
+        ['Log Pengambilan', 'stock-pickups.index', 'hand', ['stock-pickups.*']],
         ['Gudang Pelanggan', 'customer-materials.index', 'house', ['customer-materials.*']],
         ['Pemakaian Alat', 'usages.index', 'clipboard-list', ['usages.*']],
         ['Alat Cabutan', 'removed-devices.index', 'unplug', ['removed-devices.*']],

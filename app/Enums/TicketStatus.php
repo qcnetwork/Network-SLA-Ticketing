@@ -7,12 +7,14 @@ enum TicketStatus: string
     case PROSES_CS = 'PROSES_CS';
     case ANTRIAN_HELPDESK = 'ANTRIAN_HELPDESK';
     case HELPDESK_CEK = 'HELPDESK_CEK';
+    // The customer is still having trouble after a repair: back with Helpdesk. Kept beside Helpdesk Cek on the
+    // board (case order is board order) so the helpdesk does not miss it at the far end.
+    case CEK_ULANG = 'CEK_ULANG';
     // Needs a site visit, but no technician is free yet; waits here until Helpdesk assigns one.
     case ANTRIAN_TEKNISI = 'ANTRIAN_TEKNISI';
     case PERBAIKAN = 'PERBAIKAN';
     case GAMAS = 'GAMAS';
     case MENUNGGU_KONFIRMASI = 'MENUNGGU_KONFIRMASI';
-    case CEK_ULANG = 'CEK_ULANG';
     case TUTUP = 'TUTUP';
 
     // New installation (PSB). Helpdesk checks the location, a survey runs when coverage is unsure,

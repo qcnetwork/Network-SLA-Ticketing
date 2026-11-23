@@ -42,6 +42,15 @@ class ComplaintBoardTest extends TestCase
         return array_map(fn (TicketStatus $status) => $status->value, $response->viewData('boardStatuses'));
     }
 
+    public function test_cek_ulang_sits_right_after_helpdesk_cek_so_helpdesk_sees_it(): void
+    {
+        $this->actingAs($this->userWithRole(Role::SPV));
+        $this->assertSame(
+            ['PROSES_CS', 'ANTRIAN_HELPDESK', 'HELPDESK_CEK', 'CEK_ULANG', 'ANTRIAN_TEKNISI', 'PERBAIKAN', 'GAMAS', 'MENUNGGU_KONFIRMASI', 'TUTUP'],
+            $this->boardColumns($this->get('/komplain')),
+        );
+    }
+
     public function test_each_user_picks_which_kanban_columns_they_see(): void
     {
         $atox = $this->userWithRole(Role::HELPDESK);

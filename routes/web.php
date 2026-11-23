@@ -27,6 +27,7 @@ use App\Http\Controllers\TrackingController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\RemovedDeviceController;
 use App\Http\Controllers\StockAdjustmentController;
+use App\Http\Controllers\StockPickupController;
 use App\Http\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
 
@@ -98,6 +99,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/gudang/unit-sn/cari', [WarehouseController::class, 'findSerials'])->name('warehouses.find-serials');
         Route::put('/gudang/unit-sn/{serialUnit}', [WarehouseController::class, 'updateSerial'])->name('warehouses.update-serial');
         // Units that left stock ("kotor"): where each SN went, and one unit's whole history.
+        Route::get('/gudang/pengambilan', [StockPickupController::class, 'index'])->name('stock-pickups.index');
         Route::get('/gudang/tracking', [TrackingController::class, 'index'])->name('tracking.index');
         Route::get('/gudang/tracking/export', [TrackingController::class, 'export'])->name('tracking.export');
         Route::get('/gudang/unit/{serialUnit}', [TrackingController::class, 'show'])->name('tracking.unit');

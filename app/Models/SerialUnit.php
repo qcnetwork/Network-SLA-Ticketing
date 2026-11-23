@@ -223,7 +223,7 @@ class SerialUnit extends Model
             $date = $move->created_at;
             match ($move->type) {
                 StockMovementType::MASUK => $warehouse($move->toWarehouse, 'Barang masuk', $date),
-                StockMovementType::KIRIM => [$nodes === [] ? $warehouse($move->fromWarehouse, 'Stok', null) : null, $warehouse($move->toWarehouse, 'Dikirim', $date)],
+                StockMovementType::KIRIM => [$nodes === [] ? $warehouse($move->fromWarehouse, 'Stok', null) : null, $warehouse($move->toWarehouse, $move->takenBy ? "Dikirim, diambil {$move->takenBy->name}" : 'Dikirim', $date)],
                 StockMovementType::RETUR => $warehouse($move->toWarehouse, $move->fromWarehouse ? 'Retur' : 'Kembali dari pelanggan', $date),
                 StockMovementType::KOREKSI => $warehouse($move->toWarehouse, 'Batal pemakaian', $date),
                 StockMovementType::PENYESUAIAN => null,

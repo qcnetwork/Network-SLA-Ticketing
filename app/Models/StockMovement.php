@@ -61,4 +61,10 @@ class StockMovement extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    /** Who collected stock sent to a technician, when it was not the technician themselves. */
+    public function takenBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'taken_by');
+    }
 }

@@ -165,6 +165,18 @@
                             @csrf
                             <input type="hidden" name="_tab" value="kirim">
                             @include('warehouses.partials.technician-select', ['selected' => old('_tab') === 'kirim' ? old('technician_id') : null])
+                            {{-- Usually the recipient collects it; when a teammate does, the stock still goes to the recipient. --}}
+                            <div>
+                                @include('warehouses.partials.technician-select', [
+                                    'field' => 'taken_by',
+                                    'label' => 'Diambil oleh (kosongkan kalau penerima sendiri)',
+                                    'placeholder' => 'Penerima sendiri · ketik nama kalau orang lain',
+                                    'required' => false,
+                                    'selected' => old('_tab') === 'kirim' ? old('taken_by') : null,
+                                ])
+                                <p class="mt-1 text-xs text-slate-500">Isi kalau yang datang ambil bukan penerimanya, mis. Fadil ambil untuk stok Esa. Stok tetap masuk ke penerima, dan penerima dapat notifikasi.</p>
+                                <x-field-error name="taken_by" />
+                            </div>
 
                             {{-- Quick SN search: a few digits from the label find the unit in any item, no scanner needed. --}}
                             <div class="relative" x-data="snFinder({ url: @js(route('warehouses.find-serials')) })" @click.outside="open = false">

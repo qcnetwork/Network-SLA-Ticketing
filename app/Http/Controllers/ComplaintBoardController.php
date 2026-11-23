@@ -31,7 +31,7 @@ class ComplaintBoardController extends Controller
      */
     public const ROLE_FOCUS = [
         'CS' => ['PROSES_CS', 'ANTRIAN_TEKNISI', 'PERBAIKAN', 'MENUNGGU_KONFIRMASI'],
-        'HELPDESK' => ['ANTRIAN_HELPDESK', 'HELPDESK_CEK', 'ANTRIAN_TEKNISI', 'PERBAIKAN', 'GAMAS', 'CEK_ULANG'],
+        'HELPDESK' => ['ANTRIAN_HELPDESK', 'HELPDESK_CEK', 'CEK_ULANG', 'ANTRIAN_TEKNISI', 'PERBAIKAN', 'GAMAS'],
     ];
 
     public function __invoke(Request $request): View

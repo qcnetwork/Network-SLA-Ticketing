@@ -15,6 +15,9 @@
     </div>
     <div class="flex shrink-0 flex-wrap gap-2">
         <a href="{{ route('warehouses.snapshot', $warehouse) }}" class="btn-secondary"><i data-lucide="camera" class="h-4 w-4"></i>Screenshot Stok</a>
+        @if ($canManage)
+            <a href="{{ route('stock-pickups.index', ['gudang' => $warehouse->id]) }}" class="btn-secondary"><i data-lucide="hand" class="h-4 w-4"></i>Log Pengambilan</a>
+        @endif
         <a href="{{ route('usages.index', $canManage ? ['stok' => $warehouse->id] : []) }}" class="btn-secondary"><i data-lucide="clipboard-list" class="h-4 w-4"></i>Riwayat Pemakaian</a>
         @if (auth()->user()->role === App\Enums\Role::TEKNISI)
             <a href="{{ route('usages.create') }}" class="btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Catat Pemakaian</a>

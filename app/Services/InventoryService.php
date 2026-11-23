@@ -73,9 +73,11 @@ class InventoryService
      * warehouse in its own unit and lands in the technician's warehouse as the other item (meters of dropcore),
      * recorded as two KIRIM rows, one per item, so each item's history shows the hand-over.
      */
-    public function send(Item $item, int $quantity, User $technician, User $actor, ?string $notes = null): StockMovement
+    public function send(Item $item, int $quantity, User $technician, User $actor, ?string $notes = null, ?User $takenBy = null): StockMovement
     {
-        return DB::transaction(function () use ($item, $quantity, $technician, $actor, $notes) {
+        $takenBy = $this->collector($technician, $takenBy);
+
+        return DB::transaction(function () use ($item, $quantity, $technician, $actor, $notes, $takenBy) {
             $main = Warehouse::main();
             $own = Warehouse::of($technician);
             // An SN item sends by quantity only from the stock it had before it switched to SN.
@@ -83,7 +85,10 @@ class InventoryService
                 $this->ensureLoose($main, $item, $quantity, 'item');
             }
             if (! $item->convertsOnSend()) {
-                return $this->move(StockMovementType::KIRIM, $item, $quantity, $main, $own, $actor, $notes);
+                $movement = $this->move(StockMovementType::KIRIM, $item, $quantity, $main, $own, $actor, $notes, takenBy: $takenBy);
+                $this->notifyCollected($technician, $takenBy, $actor, "{$quantity} {$item->unit} {$item->code} {$item->name}");
+
+                return $movement;
             }
 
             $target = $this->conversionTarget($item, 'item');
@@ -91,9 +96,10 @@ class InventoryService
             $with = fn (string $line) => $notes ? "{$line} · {$notes}" : $line;
 
             $movement = $this->move(StockMovementType::KIRIM, $item, $quantity, $main, $own, $actor,
-                $with("Diterima teknisi sebagai {$received} {$target->unit} {$target->code}"), give: false);
+                $with("Diterima teknisi sebagai {$received} {$target->unit} {$target->code}"), give: false, takenBy: $takenBy);
             $this->move(StockMovementType::KIRIM, $target, $received, $main, $own, $actor,
-                $with("Konversi dari {$quantity} {$item->unit} {$item->code}"), take: false);
+                $with("Konversi dari {$quantity} {$item->unit} {$item->code}"), take: false, takenBy: $takenBy);
+            $this->notifyCollected($technician, $takenBy, $actor, "{$quantity} {$item->unit} {$item->code} {$item->name} ({$received} {$target->unit})");
 
             return $movement;
         });
@@ -166,9 +172,41 @@ class InventoryService
      *
      * @param  array<string>  $serials
      */
-    public function sendSerials(array $serials, User $technician, User $actor, ?string $notes = null): int
+    public function sendSerials(array $serials, User $technician, User $actor, ?string $notes = null, ?User $takenBy = null): int
     {
-        return DB::transaction(fn () => $this->moveSerials(StockMovementType::KIRIM, $serials, Warehouse::main(), Warehouse::of($technician), $actor, $notes, convert: true));
+        $takenBy = $this->collector($technician, $takenBy);
+
+        return DB::transaction(function () use ($serials, $technician, $actor, $notes, $takenBy) {
+            $count = $this->moveSerials(StockMovementType::KIRIM, $serials, Warehouse::main(), Warehouse::of($technician), $actor, $notes, convert: true, takenBy: $takenBy);
+            $this->notifyCollected($technician, $takenBy, $actor, "{$count} unit ber-SN (".collect($serials)->map(fn ($sn) => SerialUnit::normalizeSerial($sn))->filter()->unique()->take(10)->implode(', ').($count > 10 ? ', …' : '').')');
+
+            return $count;
+        });
+    }
+
+    /**
+     * Who collected stock for a technician: someone else, or null when it was the technician (or nobody said).
+     */
+    private function collector(User $technician, ?User $takenBy): ?User
+    {
+        return $takenBy && ! $takenBy->is($technician) ? $takenBy : null;
+    }
+
+    /**
+     * Stock now in a technician's name that someone else picked up: the technician hears of it, so anything
+     * they never received is raised with the warehouse straight away.
+     */
+    private function notifyCollected(User $technician, ?User $takenBy, User $actor, string $what): void
+    {
+        if (! $takenBy || ! $technician->active) {
+            return;
+        }
+        $technician->notify(new InAppNotification(
+            "Stok atas nama Anda diambil {$takenBy->name}",
+            mb_substr("{$takenBy->name} mengambil {$what} dari Gudang Utama untuk stok Anda (dicatat {$actor->name}). Kalau tidak sesuai, kabari Gudang.", 0, 500),
+            route('warehouses.show', Warehouse::of($technician), absolute: false),
+            'hand',
+        ));
     }
 
     /**
@@ -877,7 +915,7 @@ class InventoryService
      *
      * @param  array<string>  $serials
      */
-    private function moveSerials(StockMovementType $type, array $serials, Warehouse $from, Warehouse $to, User $actor, ?string $notes, bool $convert = false): int
+    private function moveSerials(StockMovementType $type, array $serials, Warehouse $from, Warehouse $to, User $actor, ?string $notes, bool $convert = false, ?User $takenBy = null): int
     {
         $serials = collect($serials)->map(fn ($serial) => SerialUnit::normalizeSerial($serial))->filter()->unique()->values();
         if ($serials->isEmpty()) {
@@ -890,13 +928,13 @@ class InventoryService
             if ($convert && $item->convertsOnSend()) {
                 $target = $this->conversionTarget($item, 'serials');
                 $with = fn (string $line) => $notes ? "{$line} · {$notes}" : $line;
-                $this->move($type, $item, 1, $from, $to, $actor, $with("Dibuka teknisi jadi {$item->send_ratio} {$target->unit} {$target->code}"), serial: $serial, give: false);
-                $this->move($type, $target, $item->send_ratio, $from, $to, $actor, $with("Konversi dari SN {$serial->serial_number} ({$item->code})"), take: false);
+                $this->move($type, $item, 1, $from, $to, $actor, $with("Dibuka teknisi jadi {$item->send_ratio} {$target->unit} {$target->code}"), serial: $serial, give: false, takenBy: $takenBy);
+                $this->move($type, $target, $item->send_ratio, $from, $to, $actor, $with("Konversi dari SN {$serial->serial_number} ({$item->code})"), take: false, takenBy: $takenBy);
                 $serial->update(['warehouse_id' => null, 'converted_to_warehouse_id' => $to->id]);
 
                 continue;
             }
-            $this->move($type, $item, 1, $from, $to, $actor, $notes, serial: $serial);
+            $this->move($type, $item, 1, $from, $to, $actor, $notes, serial: $serial, takenBy: $takenBy);
             $serial->update(['warehouse_id' => $to->id] + ($to->isMain() ? [] : ['holder_name' => $this->holderOf($to), 'taken_at' => today()]));
         }
 
@@ -944,7 +982,7 @@ class InventoryService
      * Record a movement and apply it to stock. A converted send records both rows from main to the technician,
      * but only takes the source item from main ($give false) and only gives the target item to the technician ($take false).
      */
-    private function move(StockMovementType $type, Item $item, int $quantity, ?Warehouse $from, ?Warehouse $to, User $actor, ?string $notes, ?Ticket $ticket = null, ?SerialUnit $serial = null, ?Sale $sale = null, ?MaterialUsage $usage = null, bool $take = true, bool $give = true, bool $allowShort = false): StockMovement
+    private function move(StockMovementType $type, Item $item, int $quantity, ?Warehouse $from, ?Warehouse $to, User $actor, ?string $notes, ?Ticket $ticket = null, ?SerialUnit $serial = null, ?Sale $sale = null, ?MaterialUsage $usage = null, bool $take = true, bool $give = true, bool $allowShort = false, ?User $takenBy = null): StockMovement
     {
         if ($from && $take) {
             $stock = $this->stock($from, $item);
@@ -970,6 +1008,7 @@ class InventoryService
             'sale_id' => $sale?->id,
             'material_usage_id' => $usage?->id,
             'user_id' => $actor->id,
+            'taken_by' => $takenBy?->id,
             'notes' => $notes ? mb_substr($notes, 0, 255) : null,
         ]);
     }
