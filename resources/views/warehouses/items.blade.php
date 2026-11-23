@@ -1,7 +1,5 @@
 <x-layouts.app title="Master Barang">
-    <a href="{{ route('warehouses.index') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
-        <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali ke Gudang
-    </a>
+    @include('warehouses.partials.nav', ['back' => ['Kembali ke Gudang', route('warehouses.index')]])
     <div class="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div class="flex items-center gap-3">
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white shadow-sm"><i data-lucide="boxes" class="h-6 w-6"></i></span>

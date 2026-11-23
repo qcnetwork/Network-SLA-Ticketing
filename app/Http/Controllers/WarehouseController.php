@@ -55,6 +55,7 @@ class WarehouseController extends Controller
                 ->filter(fn (Item $item) => $item->isLow((int) $item->held))->values(),
             // Searching an SN or MAC shows where that unit is now, wherever it is.
             'serialMatches' => $this->serialMatches($request),
+            'serialTotals' => ['idle' => SerialUnit::query()->idle()->count(), 'used' => SerialUnit::query()->used()->count()],
             'canManage' => $user->canAccess(Menu::WAREHOUSE_MANAGE),
         ]);
     }

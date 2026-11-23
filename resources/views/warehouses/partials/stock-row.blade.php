@@ -94,7 +94,7 @@
         <span class="text-base font-bold text-slate-900">{{ number_format($stock->quantity, 0, ',', '.') }}</span>
         <span class="text-xs text-slate-500">{{ $item->unit }}</span>
         @if (($usedCounts ?? collect())->get($item->id))
-            <a href="{{ route('tracking.index', ['barang' => $item->code]) }}" class="mt-0.5 block text-[11px] font-semibold text-amber-700 hover:underline">{{ number_format($usedCounts[$item->id], 0, ',', '.') }} terpakai →</a>
+            <a href="{{ route('tracking.index', ['posisi' => 'terpakai', 'barang' => $item->code]) }}" class="mt-0.5 block text-[11px] font-semibold text-amber-700 hover:underline">{{ number_format($usedCounts[$item->id], 0, ',', '.') }} terpakai →</a>
         @endif
         @if ($showLow && $item->isLow($stock->quantity))
             <span class="mt-0.5 block text-[11px] font-semibold text-rose-600">Menipis (min {{ $item->min_stock }})</span>

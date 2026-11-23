@@ -6,6 +6,7 @@ use App\Enums\Menu;
 use App\Enums\Role;
 use App\Enums\UsagePurpose;
 use App\Exports\MaterialUsageExport;
+use App\Models\Customer;
 use App\Models\Item;
 use App\Models\ItemCategory;
 use App\Models\MaterialUsage;
@@ -85,6 +86,7 @@ class MaterialUsageController extends Controller
             'location' => ['required', 'string', 'max:255'],
             'team' => ['nullable', 'string', 'max:150'],
             'ticket_number' => ['nullable', 'string', 'max:40'],
+            'customer_code' => ['nullable', 'string', 'max:50'],
             'removed_device' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:255'],
             'lines' => ['required', 'array', 'max:100'],
@@ -104,6 +106,11 @@ class MaterialUsageController extends Controller
         if (filled($data['ticket_number'] ?? null)) {
             $ticket = Ticket::query()->where('ticket_number', strtoupper(trim($data['ticket_number'])))->first()
                 ?? throw ValidationException::withMessages(['ticket_number' => 'Nomor tiket tidak ditemukan']);
+        }
+        // A customer ID must be one in the customer directory, spelled as it is there.
+        if (filled($data['customer_code'] ?? null)) {
+            $data['customer_code'] = Customer::query()->withCode($data['customer_code'])->value('code')
+                ?? throw ValidationException::withMessages(['customer_code' => "ID pelanggan {$data['customer_code']} tidak ada di data pelanggan"]);
         }
 
         $usage = $this->inventory->recordUsage([...$data, 'ticket_id' => $ticket?->id], $data['lines'], $source, $user);

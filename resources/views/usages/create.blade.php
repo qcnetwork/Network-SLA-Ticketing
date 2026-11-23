@@ -54,6 +54,42 @@
                 </div>
                 <x-field-error name="used_at" />
 
+                {{-- The customer ID files the material under that customer in Gudang Pelanggan. --}}
+                <div class="relative" x-data="{
+                        q: @js(old('customer_code', '')), results: [], open: false, picked: null,
+                        async find() {
+                            this.picked = null;
+                            if (this.q.trim().length < 2) { this.results = []; return; }
+                            const response = await fetch(@js(route('customer-materials.search')) + '?q=' + encodeURIComponent(this.q.trim()), { headers: { Accept: 'application/json' } });
+                            this.results = response.ok ? await response.json() : [];
+                            this.open = true;
+                        },
+                        pick(customer) {
+                            this.q = customer.code; this.picked = customer; this.open = false;
+                            const location = document.getElementById('location');
+                            if (! location.value.trim()) location.value = [customer.name, customer.address].filter(Boolean).join(' · ').slice(0, 255);
+                        },
+                    }" @click.outside="open = false">
+                    <label class="label" for="customer_code">ID Pelanggan <span class="font-normal text-slate-400">(isi bila dipasang di pelanggan)</span></label>
+                    <input id="customer_code" name="customer_code" x-model="q" @input.debounce.300ms="find()" @focus="results.length && (open = true)" @keydown.escape="open = false"
+                        class="input font-mono" maxlength="50" autocomplete="off" placeholder="Cari ID, nama, atau no. WA pelanggan">
+                    <ul x-show="open && results.length" x-cloak class="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white text-sm shadow-lg">
+                        <template x-for="customer in results" :key="customer.code">
+                            <li>
+                                <button type="button" @click="pick(customer)" class="block w-full px-3 py-2 text-left hover:bg-indigo-50">
+                                    <span class="font-mono text-xs font-semibold text-indigo-700" x-text="customer.code"></span>
+                                    <span class="font-medium text-slate-800" x-text="customer.name"></span>
+                                    <span class="block truncate text-xs text-slate-500" x-text="customer.address"></span>
+                                </button>
+                            </li>
+                        </template>
+                    </ul>
+                    <p x-show="picked" x-cloak class="mt-1 flex items-center gap-1 text-xs text-emerald-700">
+                        <i data-lucide="house" class="h-3.5 w-3.5"></i><span x-text="picked ? `Material tercatat di Gudang Pelanggan ${picked.name}` : ''"></span>
+                    </p>
+                    <x-field-error name="customer_code" />
+                </div>
+
                 <div>
                     <label class="label" for="location">Lokasi pemasangan</label>
                     <input id="location" name="location" value="{{ old('location') }}" class="input" required maxlength="255" placeholder="Nama pelanggan + desa, atau nama lokasi">

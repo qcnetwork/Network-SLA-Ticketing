@@ -2,9 +2,12 @@
 
 namespace App\Models;
 
+use App\Enums\StockMovementType;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 /**
  * One SN-tracked unit: a modem, a roll of dropcore, a pole... It sits in a warehouse until a repair resume
@@ -70,6 +73,51 @@ class SerialUnit extends Model
     }
 
     /**
+     * Units still sitting in a warehouse, the main one or a technician's: not installed, sold or written off yet.
+     */
+    public function scopeIdle(Builder $query): Builder
+    {
+        return $query->whereNotNull('warehouse_id');
+    }
+
+    /**
+     * Adds `idle_since`: when the unit last arrived in the warehouse it sits in (received, sent or returned there),
+     * falling back to the sheet's received date or when it was registered.
+     */
+    public function scopeWithIdleSince(Builder $query): Builder
+    {
+        $arrived = StockMovement::query()->select('created_at')
+            ->whereColumn('stock_movements.serial_unit_id', 'serial_units.id')
+            ->whereColumn('stock_movements.to_warehouse_id', 'serial_units.warehouse_id')
+            ->orderByDesc('id')->limit(1);
+
+        return $query->select('serial_units.*')
+            ->selectRaw("coalesce(({$arrived->toSql()}), serial_units.received_at, serial_units.created_at) as idle_since");
+    }
+
+    /**
+     * When an idle unit arrived where it sits (needs withIdleSince), or null for a used one.
+     */
+    public function idleSince(): ?Carbon
+    {
+        if ($this->warehouse_id === null) {
+            return null;
+        }
+
+        return Carbon::parse($this->getAttribute('idle_since') ?? $this->received_at ?? $this->created_at);
+    }
+
+    /**
+     * Whole days an idle unit has been sitting where it is.
+     */
+    public function idleDays(): ?int
+    {
+        $since = $this->idleSince();
+
+        return $since ? (int) $since->startOfDay()->diffInDays(today()) : null;
+    }
+
+    /**
      * Narrow used units to one of DESTINATIONS, in the same order location() reads a unit.
      */
     public function scopeDestination(Builder $query, string $destination): Builder
@@ -121,6 +169,81 @@ class SerialUnit extends Model
             $this->installed_to !== null => $this->installed_to,
             default => $this->condition ?? '-',
         };
+    }
+
+    /**
+     * The places this unit has been, in order, as nodes: Gudang Utama → a technician → a customer → back to the
+     * office... Consecutive moves within one place make one node. The TRACKING ALAT sheet's story comes first for
+     * imported units, then every move recorded in the app.
+     *
+     * @param  Collection<int, StockMovement>|null  $moves  oldest first, with fromWarehouse.user, toWarehouse.user, usage, ticket and sale
+     * @return array<int, array{kind: string, label: string, sub: ?string, date: ?Carbon, url: ?string}>
+     */
+    public function journey($moves = null): array
+    {
+        $moves ??= StockMovement::query()->where('serial_unit_id', $this->id)
+            ->with(['fromWarehouse.user', 'toWarehouse.user', 'usage', 'ticket', 'sale'])->orderBy('created_at')->orderBy('id')->get();
+        $nodes = [];
+        $push = function (string $kind, string $label, ?string $sub, mixed $date, ?string $url = null) use (&$nodes) {
+            $last = end($nodes);
+            if ($last && $last['kind'] === $kind && $last['label'] === $label) {
+                return;
+            }
+            $nodes[] = ['kind' => $kind, 'label' => $label, 'sub' => $sub, 'date' => $date ? Carbon::parse($date) : null, 'url' => $url];
+        };
+        $warehouse = function (?Warehouse $place, string $sub, mixed $date) use ($push) {
+            if ($place) {
+                $place->isMain()
+                    ? $push('gudang', $place->name, $sub, $date, route('warehouses.index'))
+                    : $push('teknisi', $place->user?->name ?? $place->name, $sub, $date, route('warehouses.show', $place));
+            }
+        };
+        $customer = fn (?string $code) => $code ? route('customer-materials.show', $code) : null;
+
+        if ($this->imported_at) {
+            if ($this->received_at || $this->holder_name) {
+                $push('gudang', 'Gudang Utama', 'Paket masuk', $this->received_at);
+            }
+            if ($this->holder_name) {
+                $push('teknisi', $this->holder_name, 'Diambil', $this->taken_at);
+            }
+            if ($this->installed_to) {
+                $push('pelanggan', $this->installed_to, $this->install_status ?? 'Dipasang', $this->taken_at);
+            }
+            if ($this->condition && $moves->isEmpty()) {
+                match (true) {
+                    (bool) preg_match('/^(KEMBALI|RETUR KANTOR|WAREHO)/i', $this->condition) => $push('gudang', 'Gudang Utama', $this->condition, null),
+                    $this->destination() === 'mitra' => $push('mitra', $this->placeName(), $this->condition, null),
+                    default => $push('lepas', $this->condition, $this->notes, null),
+                };
+            }
+        }
+
+        foreach ($moves as $move) {
+            $date = $move->created_at;
+            match ($move->type) {
+                StockMovementType::MASUK => $warehouse($move->toWarehouse, 'Barang masuk', $date),
+                StockMovementType::KIRIM => [$nodes === [] ? $warehouse($move->fromWarehouse, 'Stok', null) : null, $warehouse($move->toWarehouse, 'Dikirim', $date)],
+                StockMovementType::RETUR => $warehouse($move->toWarehouse, $move->fromWarehouse ? 'Retur' : 'Kembali dari pelanggan', $date),
+                StockMovementType::KOREKSI => $warehouse($move->toWarehouse, 'Batal pemakaian', $date),
+                StockMovementType::JUAL => $push('mitra', $move->sale?->buyer_name ?? 'Pembeli', 'Dijual', $date),
+                StockMovementType::PAKAI => [
+                    $nodes === [] ? $warehouse($move->fromWarehouse, 'Stok', null) : null,
+                    $push('pelanggan',
+                        Customer::query()->withCode((string) ($move->usage?->customer_code ?: $move->ticket?->customer_id))->value('name')
+                            ?? $move->ticket?->customer_name ?? $move->usage?->location ?? 'Pelanggan',
+                        collect([$move->usage?->customer_code ?: $move->ticket?->customer_id, $move->usage?->purpose?->label()])->filter()->implode(' · ') ?: 'Dipasang',
+                        $date, $customer($move->usage?->customer_code ?: $move->ticket?->customer_id)),
+                ],
+            };
+        }
+
+        // Taken off a customer and written off in the app: the unit ends there.
+        if ($this->warehouse_id === null && $this->condition && str_starts_with($this->condition, 'DILEPAS')) {
+            $push('lepas', 'Dilepas', $this->condition, null);
+        }
+
+        return $nodes;
     }
 
     /**

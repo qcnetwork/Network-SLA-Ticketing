@@ -4,9 +4,15 @@
     $item = $unit->item;
 @endphp
 <x-layouts.app :title="'SN '.$unit->serial_number">
+    @include('warehouses.partials.nav')
     <a href="{{ url()->previous() !== url()->current() ? url()->previous() : route('tracking.index') }}" class="mb-4 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700">
         <i data-lucide="arrow-left" class="h-4 w-4"></i>Kembali
     </a>
+
+    <section class="card mb-6 p-5">
+        <h2 class="mb-3 flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="route" class="h-4 w-4"></i>Perjalanan Unit</h2>
+        @include('warehouses.partials.journey', ['nodes' => $journey])
+    </section>
 
     <div class="grid gap-6 lg:grid-cols-3">
         <section class="card space-y-4 p-5">
@@ -30,8 +36,13 @@
                     <dt class="text-xs text-slate-500">Posisi sekarang</dt>
                     <dd>
                         @if ($destination === null)
-                            <span class="badge border-emerald-300 bg-emerald-50 text-emerald-700">Tersedia</span>
-                            <span class="mt-1 block font-medium text-slate-800">{{ $unit->warehouse->name }}</span>
+                            <span class="badge border-emerald-300 bg-emerald-50 text-emerald-700">Idle · {{ $unit->warehouse->isMain() ? 'Gudang Utama' : 'dipegang teknisi' }}</span>
+                            <a href="{{ route('warehouses.show', $unit->warehouse) }}" class="mt-1 block font-medium text-slate-800 hover:text-indigo-700 hover:underline">{{ $unit->warehouse->name }}</a>
+                            @if ($idleSince)
+                                <span class="text-xs {{ $idleDays >= 90 ? 'font-semibold text-rose-600' : ($idleDays >= 30 ? 'font-semibold text-amber-600' : 'text-slate-500') }}">
+                                    Di sini sejak {{ $idleSince->format('d/m/Y') }} · idle {{ $idleDays }} hari
+                                </span>
+                            @endif
                         @else
                             <span class="badge border-amber-300 bg-amber-50 text-amber-700">Terpakai · {{ App\Models\SerialUnit::DESTINATIONS[$destination] }}</span>
                             <span class="mt-1 block font-medium text-slate-800">

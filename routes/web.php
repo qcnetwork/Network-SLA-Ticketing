@@ -4,6 +4,7 @@ use App\Http\Controllers\ArchiveController;
 use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\ComplaintBoardController;
 use App\Http\Controllers\CustomerController;
+use App\Http\Controllers\CustomerMaterialController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\IncidentController;
 use App\Http\Controllers\InstallationController;
@@ -97,6 +98,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/gudang/tracking', [TrackingController::class, 'index'])->name('tracking.index');
         Route::get('/gudang/tracking/export', [TrackingController::class, 'export'])->name('tracking.export');
         Route::get('/gudang/unit/{serialUnit}', [TrackingController::class, 'show'])->name('tracking.unit');
+        // Gudang Pelanggan: take material off a customer, back to the office or written off.
+        Route::post('/gudang/pelanggan/material/{customerMaterial}/lepas', [CustomerMaterialController::class, 'remove'])->name('customer-materials.remove');
         Route::post('/gudang/{warehouse}/retur-sn', [WarehouseController::class, 'returnSerials'])->name('warehouses.return-serials');
         Route::post('/gudang/pengajuan/{materialRequest}/setujui', [WarehouseController::class, 'approveRequest'])->name('material-requests.approve');
         Route::post('/gudang/pengajuan/{materialRequest}/tolak', [WarehouseController::class, 'rejectRequest'])->name('material-requests.reject');
@@ -119,6 +122,10 @@ Route::middleware('auth')->group(function () {
         Route::get('/gudang/{warehouse}/stok/{category}', [WarehouseController::class, 'category'])->whereNumber('warehouse')->name('warehouses.category');
         // Technicians check scans against their own stock; see lookupSerial.
         Route::get('/gudang/cek-sn', [WarehouseController::class, 'lookupSerial'])->name('warehouses.lookup-serial');
+        // Gudang Pelanggan: material at each customer, by customer ID. The picker serves the Pemakaian Alat form.
+        Route::get('/gudang/pelanggan', [CustomerMaterialController::class, 'index'])->name('customer-materials.index');
+        Route::get('/gudang/pelanggan/cari', [CustomerMaterialController::class, 'search'])->name('customer-materials.search');
+        Route::get('/gudang/pelanggan/{code}', [CustomerMaterialController::class, 'show'])->where('code', '.+')->name('customer-materials.show');
         // Pemakaian Alat: the warehouse records any job, a technician the jobs from their own stock.
         Route::get('/gudang/pemakaian', [MaterialUsageController::class, 'index'])->name('usages.index');
         Route::get('/gudang/pemakaian/baru', [MaterialUsageController::class, 'create'])->name('usages.create');

@@ -90,7 +90,9 @@ class SerialInventoryTest extends TestCase
         $this->assertSame($main->id, SerialUnit::query()->where('serial_number', 'SN-B')->value('warehouse_id'));
         $this->assertSame(1, $this->quantity($own));
 
-        $this->get('/gudang?q=SN-A')->assertOk()->assertSee('Posisi SN')->assertSee('Gudang Tim Rasyid');
+        // The warehouse team finds any SN on Cari SN; others see where it is from the stock search.
+        $this->get('/gudang/tracking?q=SN-A')->assertOk()->assertSee('SN-A')->assertSee('Gudang Tim Rasyid')->assertSee('Idle · di teknisi');
+        $this->actingAs($this->userWithRole(Role::HELPDESK))->get('/gudang?q=SN-A')->assertOk()->assertSee('Posisi SN')->assertSee('Gudang Tim Rasyid');
     }
 
     public function test_resume_installs_a_modem_by_its_sn(): void
@@ -134,7 +136,7 @@ class SerialInventoryTest extends TestCase
         $this->assertSame(1, $this->quantity(Warehouse::of($this->technician)));
 
         $this->get("/tickets/{$ticket->ticket_number}")->assertSee('SN SN-A · 28:6D:DA:0C:D4:60');
-        $this->get('/gudang?q=SN-A')->assertSee("Terpasang · {$ticket->ticket_number}");
+        $this->get('/gudang/tracking?q=SN-A')->assertSee('Terpasang di pelanggan')->assertSee($ticket->ticket_number);
     }
 
     public function test_barcoded_rolls_and_poles_move_by_sn_too(): void
@@ -162,7 +164,7 @@ class SerialInventoryTest extends TestCase
 
         $this->post('/gudang/masuk-sn', ['item' => 'TNG7', 'serials' => [['sn' => 'TNG-0001'], ['sn' => 'TNG-0002']]])->assertSessionHasNoErrors();
         $this->post('/gudang/masuk-sn', ['item' => 'DRC-R', 'serials' => [['sn' => 'ROLL-01'], ['sn' => 'ROLL-02']]])->assertSessionHasNoErrors();
-        $this->get('/gudang')->assertOk()->assertSee('Barang ber-SN')->assertDontSee('Kirim Perangkat');
+        $this->get('/gudang')->assertOk()->assertSee('Unit SN Idle')->assertDontSee('Kirim Perangkat');
 
         $this->post('/gudang/kirim-sn', ['technician_id' => $this->technician->id, 'serials' => [['sn' => 'TNG-0001'], ['sn' => 'ROLL-01']]])->assertSessionHasNoErrors();
 

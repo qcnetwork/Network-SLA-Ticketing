@@ -13,7 +13,7 @@ use PhpOffice\PhpSpreadsheet\Cell\StringValueBinder;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 /**
- * Used units as the tracking page lists them, one row per SN. Every value is written as plain text, so an SN
+ * SN units as the Cari SN page lists them, idle or used,, one row per SN. Every value is written as plain text, so an SN
  * like 48575443... never turns into a number and nothing typed in the sheet runs as a formula.
  */
 class TrackingExport extends StringValueBinder implements FromArray, ShouldAutoSize, WithCustomValueBinder, WithStyles, WithTitle
@@ -28,13 +28,14 @@ class TrackingExport extends StringValueBinder implements FromArray, ShouldAutoS
 
     public function title(): string
     {
-        return 'Unit Terpakai';
+        return 'Unit SN';
     }
 
     public function array(): array
     {
-        $rows = [['SN', 'MAC', 'Kode Barang', 'Nama Barang', 'Jenis', 'Merk', 'Tujuan', 'Dipasang di / Posisi', 'Teknisi / Pemegang', 'Tanggal Ambil', 'Status Pemasangan', 'Alat Diganti', 'Keterangan', 'Tiket']];
+        $rows = [['SN', 'MAC', 'Kode Barang', 'Nama Barang', 'Jenis', 'Merk', 'Status', 'Tujuan', 'Dipasang di / Posisi', 'Teknisi / Pemegang', 'Tanggal Ambil', 'Idle Sejak', 'Lama Idle (hari)', 'Status Pemasangan', 'Alat Diganti', 'Keterangan', 'Tiket']];
         foreach ($this->units as $unit) {
+            $idle = $unit->warehouse_id !== null;
             $rows[] = [
                 $unit->serial_number,
                 $unit->formattedMac() ?? '',
@@ -42,12 +43,15 @@ class TrackingExport extends StringValueBinder implements FromArray, ShouldAutoS
                 $unit->item->name,
                 $unit->item->variant ?? '',
                 $unit->item->brand ?? '',
+                $idle ? 'Idle' : 'Terpakai',
                 SerialUnit::DESTINATIONS[$unit->destination()] ?? '',
                 $unit->placeName(),
-                $unit->holder_name ?? '',
-                $unit->taken_at?->format('Y-m-d') ?? '',
-                $unit->install_status ?? '',
-                $unit->replaced_device ?? '',
+                ($idle ? $unit->warehouse?->user?->name : $unit->holder_name) ?? '',
+                $idle ? '' : ($unit->taken_at?->format('Y-m-d') ?? ''),
+                $idle ? ($unit->idleSince()?->format('Y-m-d') ?? '') : '',
+                $idle ? (string) ($unit->idleDays() ?? '') : '',
+                $idle ? '' : ($unit->install_status ?? ''),
+                $idle ? '' : ($unit->replaced_device ?? ''),
                 collect([$unit->condition && $unit->destination() === 'retur' ? $unit->condition : null, $unit->notes])->filter()->implode(' · '),
                 $unit->ticket?->ticket_number ?? '',
             ];

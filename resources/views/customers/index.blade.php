@@ -78,7 +78,12 @@
                         <td class="px-4 py-2 text-xs text-slate-500">
                             {{ $customer->tickets_max_created_at ? \Illuminate\Support\Carbon::parse($customer->tickets_max_created_at)->format('d/m/Y') : '-' }}
                         </td>
-                        <td class="px-4 py-2 text-right">
+                        <td class="space-x-1 px-4 py-2 text-right whitespace-nowrap">
+                            @if (auth()->user()->canAccess(App\Enums\Menu::WAREHOUSE) && auth()->user()->role !== App\Enums\Role::TEKNISI)
+                                <a href="{{ route('customer-materials.show', $customer->code) }}" class="btn-secondary text-xs" title="Material terpasang di pelanggan ini">
+                                    <i data-lucide="package" class="h-4 w-4"></i>Material
+                                </a>
+                            @endif
                             @can('create', App\Models\Ticket::class)
                                 <a href="{{ route('tickets.create', ['customer' => $customer->code]) }}" class="btn-secondary text-xs">
                                     <i data-lucide="plus-circle" class="h-4 w-4"></i>Buat Tiket

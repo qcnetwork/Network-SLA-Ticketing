@@ -66,9 +66,13 @@ class TrackingTest extends TestCase
         $this->assertSame(['Tim Dian', 'Rahayu Tambakroto', 'PEMASANGAN BARU', 'ZTE F609'], [$used->holder_name, $used->installed_to, $used->install_status, $used->replaced_device]);
         $this->assertSame('pelanggan', $used->destination());
 
-        $page = $this->get('/gudang/tracking')->assertOk()->assertSee('FH-USED')->assertSee('Rahayu Tambakroto')->assertDontSee('FH-IN-STOCK');
+        $page = $this->get('/gudang/tracking?posisi=terpakai')->assertOk()->assertSee('FH-USED')->assertSee('Rahayu Tambakroto')->assertDontSee('FH-IN-STOCK');
         $this->assertSame(['pelanggan' => 2, 'mitra' => 2, 'retur' => 1, 'lainnya' => 0], $page->viewData('counts')->all());
-        $this->assertSame(5, $page->viewData('total'));
+        $this->assertSame(5, $page->viewData('positionCounts')['terpakai']);
+
+        // Without a tab, idle and used units list together.
+        $all = $this->get('/gudang/tracking')->assertOk()->assertSee('FH-IN-STOCK')->assertSee('FH-USED');
+        $this->assertSame(['' => 6, 'idle' => 1, 'terpakai' => 5], $all->viewData('positionCounts')->all());
 
         $codes = fn (string $query) => collect($this->get("/gudang/tracking?{$query}")->assertOk()->viewData('units')->items())->pluck('serial_number')->sort()->values()->all();
         $this->assertSame(['FH-SHEET', 'FH-USED'], $codes('tujuan=pelanggan'));
@@ -80,6 +84,7 @@ class TrackingTest extends TestCase
         $this->assertSame(['FH-SHEET'], $codes('dari=2026-06-01&sampai=2026-06-30'));
 
         $this->get('/gudang/tracking/export?tujuan=pelanggan')->assertOk()->assertDownload();
+        $this->get('/gudang/tracking/export?posisi=idle')->assertOk()->assertDownload();
 
         // One unit's story, from receiving to the job.
         $this->get("/gudang/unit/{$used->id}")->assertOk()->assertSee('FH-USED')->assertSee('Kirim ke Teknisi')->assertSee('Rahayu Tambakroto');
@@ -88,6 +93,29 @@ class TrackingTest extends TestCase
 
         // Only the warehouse team sees it.
         $this->actingAs($this->technician)->get('/gudang/tracking')->assertForbidden();
+    }
+
+    public function test_idle_units_are_found_by_sn_where_they_sit_and_how_long(): void
+    {
+        $this->travelTo(now()->subDays(40));
+        $this->post('/gudang/kirim-sn', ['technician_id' => $this->technician->id, 'serials' => [['sn' => 'FH-USED']]])->assertSessionHasNoErrors();
+        $this->travelBack();
+
+        $codes = fn (string $query) => collect($this->get("/gudang/tracking?{$query}")->assertOk()->viewData('units')->items())->pluck('serial_number')->all();
+        // Longest waiting first: the unit the technician has carried for 40 days.
+        $this->assertSame(['FH-USED', 'FH-IN-STOCK', 'FH-SOLD'], $codes('posisi=idle'));
+        $this->assertEqualsCanonicalizing(['FH-IN-STOCK', 'FH-SOLD'], $codes('gudang=utama'));
+        $this->assertSame(['FH-USED'], $codes('gudang=teknisi'));
+        $this->assertSame(['FH-USED'], $codes('posisi=idle&teknisi=Tim+Dian'));
+        $this->assertSame(['FH-USED'], $codes('q=286D-DA0C'));
+        $this->assertSame(['FH-USED'], $codes('q=Gudang+Tim+Dian'));
+
+        $this->get('/gudang/tracking?gudang=teknisi')->assertSee('idle 40 hari')->assertSee('Idle · di teknisi');
+        $unit = SerialUnit::query()->where('serial_number', 'FH-USED')->sole();
+        $this->get("/gudang/unit/{$unit->id}")->assertOk()->assertSee('idle 40 hari');
+
+        // The warehouse page's SN box searches here.
+        $this->get('/gudang')->assertOk()->assertSee('Cari SN')->assertSee('3 idle');
     }
 
     public function test_the_category_page_shows_used_units_beside_stock(): void

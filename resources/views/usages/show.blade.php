@@ -16,6 +16,9 @@
                 <h1 class="text-2xl font-bold text-slate-900">{{ $usage->location }}</h1>
                 <p class="text-sm text-slate-500">{{ $usage->used_at->translatedFormat('l, d F Y') }} · {{ $usage->team ?: 'Teknisi tidak diisi' }}</p>
             </div>
+            @if ($usage->customer_code && auth()->user()->role !== App\Enums\Role::TEKNISI)
+                <a href="{{ route('customer-materials.show', $usage->customer_code) }}" class="btn-secondary shrink-0"><i data-lucide="house" class="h-4 w-4 text-emerald-600"></i>Pelanggan {{ $usage->customer_code }}</a>
+            @endif
             @if ($usage->ticket)
                 <a href="{{ route('tickets.show', $usage->ticket) }}" class="btn-secondary shrink-0"><i data-lucide="ticket" class="h-4 w-4"></i>{{ $usage->ticket->ticket_number }}</a>
             @endif

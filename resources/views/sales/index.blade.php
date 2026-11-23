@@ -5,7 +5,7 @@
         $query = array_filter(['q' => $filters['q'], 'mitra' => $filters['partner'], 'status' => $filters['status'], 'dari' => $filters['from'], 'sampai' => $filters['to']]);
     @endphp
 
-    <a href="{{ route('warehouses.index') }}" class="mb-3 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700"><i data-lucide="arrow-left" class="h-4 w-4"></i>Gudang</a>
+    @include('warehouses.partials.nav', ['back' => ['Gudang', route('warehouses.index')]])
     <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div class="flex items-center gap-3">
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-sky-600 text-white shadow-sm"><i data-lucide="receipt" class="h-6 w-6"></i></span>
@@ -15,7 +15,6 @@
             </div>
         </div>
         <div class="flex flex-wrap gap-2">
-            <a href="{{ route('partners.index') }}" class="btn-secondary"><i data-lucide="handshake" class="h-4 w-4"></i>Mitra</a>
             <a href="{{ route('sales.export', $query) }}" class="btn-secondary"><i data-lucide="file-spreadsheet" class="h-4 w-4 text-emerald-600"></i>Export Excel</a>
             <a href="{{ route('sales.create') }}" class="btn-primary"><i data-lucide="shopping-cart" class="h-4 w-4"></i>Jual Barang</a>
         </div>

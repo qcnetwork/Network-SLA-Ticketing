@@ -8,6 +8,8 @@ use App\Enums\Role;
 use App\Enums\StockMovementType;
 use App\Enums\TicketAction;
 use App\Enums\UsagePurpose;
+use App\Models\CustomerMaterial;
+use App\Models\CustomerMaterialLog;
 use App\Models\Item;
 use App\Models\ItemCategory;
 use App\Models\MaterialRequest;
@@ -308,6 +310,9 @@ class InventoryService
                 }
             }
 
+            // The ticket's customer now has this material (Gudang Pelanggan).
+            app(CustomerMaterialService::class)->recordInstall($usage->refresh(), $actor, now());
+
             return $this->review($request, MaterialRequestStatus::APPROVED, TicketAction::MATERIAL_DISETUJUI, $actor, $notes);
         });
     }
@@ -425,6 +430,7 @@ class InventoryService
                 'location' => $text($data['location'] ?? null, 255) ?? throw ValidationException::withMessages(['location' => 'Isi lokasi pemasangan']),
                 'team' => $text($data['team'] ?? null, 150),
                 'ticket_id' => $data['ticket_id'] ?? null,
+                'customer_code' => $text($data['customer_code'] ?? null, 50),
                 'removed_device' => $text($data['removed_device'] ?? null, 255),
                 'notes' => $text($data['notes'] ?? null, 255),
                 'user_id' => $actor->id,
@@ -468,6 +474,9 @@ class InventoryService
                 ]);
             }
 
+            // Done for a customer ID (typed, or the ticket's): the material is now theirs in Gudang Pelanggan.
+            app(CustomerMaterialService::class)->recordInstall($usage, $actor);
+
             return $usage;
         });
     }
@@ -496,8 +505,42 @@ class InventoryService
                 }
             }
             $usage->update(['cancelled_at' => now(), 'cancelled_by' => $actor->id, 'cancel_reason' => mb_substr($reason, 0, 255)]);
+            app(CustomerMaterialService::class)->cancel($usage, $actor, $reason);
 
             return $usage;
+        });
+    }
+
+    /**
+     * Material comes off a customer (Gudang Pelanggan). Back to the office, it re-enters the main warehouse as
+     * returned stock (an SN unit as an idle, used unit); otherwise (broken, lost, left behind) it is written off.
+     */
+    public function removeFromCustomer(CustomerMaterial $material, User $actor, string $reason, bool $backToOffice): CustomerMaterial
+    {
+        return DB::transaction(function () use ($material, $actor, $reason, $backToOffice) {
+            $material = CustomerMaterial::query()->lockForUpdate()->with(['item', 'serialUnit'])->findOrFail($material->id);
+            if (! $material->isInstalled()) {
+                throw ValidationException::withMessages(['reason' => 'Material ini sudah dilepas dari pelanggan']);
+            }
+            $customers = app(CustomerMaterialService::class);
+            $from = $customers->customerLabel($material->customer_code);
+            $stamp = today()->format('d/m/Y');
+            $serial = $material->serialUnit;
+
+            if ($backToOffice && $material->item) {
+                $main = Warehouse::main();
+                $this->move(StockMovementType::RETUR, $material->item, $material->quantity, null, $main, $actor, mb_substr("Dilepas dari {$from}: {$reason}", 0, 255), serial: $serial);
+                // Back in the main warehouse as a used unit: it remembers where it was, and when it came back.
+                $serial?->update(['warehouse_id' => $main->id, 'ticket_id' => null, 'material_usage_id' => null,
+                    'condition' => mb_substr("KEMBALI KE KANTOR {$stamp} · {$reason}", 0, 255)]);
+
+                return $customers->markRemoved($material, CustomerMaterialLog::KEMBALI, $actor, $reason, $main->name);
+            }
+
+            // Written off: the unit stays out of stock, filed as returned / broken on the tracking page.
+            $serial?->update(['ticket_id' => null, 'material_usage_id' => null, 'condition' => mb_substr("DILEPAS {$stamp} · {$reason}", 0, 255)]);
+
+            return $customers->markRemoved($material, CustomerMaterialLog::LEPAS, $actor, $reason);
         });
     }
 

@@ -1,4 +1,5 @@
 <x-layouts.app title="Gudang">
+    @include('warehouses.partials.nav')
     <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div class="flex items-center gap-3">
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-indigo-600 text-white shadow-sm"><i data-lucide="warehouse" class="h-6 w-6"></i></span>
@@ -8,28 +9,41 @@
             </div>
         </div>
         @if ($canManage)
-            <div class="flex shrink-0 flex-wrap gap-2">
-                <a href="{{ route('tracking.index') }}" class="btn-secondary"><i data-lucide="map-pin" class="h-4 w-4"></i>Tracking Unit</a>
-                <a href="{{ route('usages.index') }}" class="btn-secondary"><i data-lucide="clipboard-list" class="h-4 w-4"></i>Pemakaian Alat</a>
-                <a href="{{ route('sales.create') }}" class="btn-primary"><i data-lucide="shopping-cart" class="h-4 w-4"></i>Jual Barang</a>
-                <a href="{{ route('sales.index') }}" class="btn-secondary"><i data-lucide="receipt" class="h-4 w-4"></i>Log Penjualan</a>
-                <a href="{{ route('partners.index') }}" class="btn-secondary"><i data-lucide="handshake" class="h-4 w-4"></i>Mitra</a>
-                <a href="{{ route('items.index') }}" class="btn-secondary"><i data-lucide="boxes" class="h-4 w-4"></i>Master Barang</a>
-            </div>
+            <a href="{{ route('sales.create') }}" class="btn-primary shrink-0"><i data-lucide="shopping-cart" class="h-4 w-4"></i>Jual Barang</a>
         @endif
     </div>
+
+    @if ($canManage)
+        {{-- Scan or type any SN / MAC to see where it is: idle in a warehouse or already used. --}}
+        <form method="GET" action="{{ route('tracking.index') }}" class="card mb-6 flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
+            <label for="sn_search" class="flex shrink-0 items-center gap-2 font-semibold text-slate-800">
+                <span class="grid h-9 w-9 place-items-center rounded-lg bg-violet-100 text-violet-700"><i data-lucide="scan-barcode" class="h-5 w-5"></i></span>
+                Cari SN
+            </label>
+            <div class="flex flex-1 gap-2">
+                <input id="sn_search" type="search" name="q" class="input flex-1 font-mono" autocomplete="off" spellcheck="false"
+                    placeholder="Scan / ketik SN atau MAC, nama pelanggan, teknisi…">
+                <button class="btn-primary shrink-0"><i data-lucide="search" class="h-4 w-4"></i><span class="hidden sm:inline">Cari</span></button>
+            </div>
+            <div class="flex shrink-0 gap-2 text-xs font-semibold">
+                <a href="{{ route('tracking.index', ['posisi' => 'idle']) }}" class="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700 hover:border-emerald-400">{{ number_format($serialTotals['idle'], 0, ',', '.') }} idle</a>
+                <a href="{{ route('tracking.index', ['posisi' => 'terpakai']) }}" class="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-700 hover:border-amber-400">{{ number_format($serialTotals['used'], 0, ',', '.') }} terpakai</a>
+            </div>
+        </form>
+    @endif
 
     @include('warehouses.partials.summary', ['tiles' => [
         ['Jenis Barang', $summary['kinds'], 'layers', 'indigo', 'di Gudang Utama'],
         ['Total Unit', $summary['units'], 'package', 'emerald', 'semua satuan'],
-        ['Barang ber-SN', $summary['serials'], 'scan-barcode', 'violet', 'siap dikirim'],
+        ['Unit SN Idle', $summary['serials'], 'scan-barcode', 'violet', 'di Gudang Utama', $canManage ? route('tracking.index', ['gudang' => 'utama']) : null],
         ['Stok Menipis', $lowStock->count(), 'circle-alert', $lowStock->isEmpty() ? 'slate' : 'rose', 'di bawah minimum'],
         ['Menunggu ACC', $materialRequests->count(), 'hourglass', $materialRequests->isEmpty() ? 'slate' : 'amber', 'pengajuan material'],
     ]])
 
     <div class="grid gap-6 lg:grid-cols-3">
         <div class="space-y-6 lg:col-span-2">
-            @if ($serialMatches->isNotEmpty())
+            {{-- Outside the warehouse team, searching the stock for an SN shows where that unit is. --}}
+            @if (! $canManage && $serialMatches->isNotEmpty())
                 <section class="card p-5">
                     <h2 class="mb-3 flex items-center gap-2 font-semibold text-slate-800"><i data-lucide="scan-barcode" class="h-4 w-4"></i>Posisi SN</h2>
                     <ul class="divide-y divide-slate-100 text-sm">

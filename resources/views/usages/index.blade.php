@@ -5,7 +5,7 @@
             'status' => $filters['status'] === 'batal' ? 'batal' : null]);
     @endphp
 
-    <a href="{{ route('warehouses.index') }}" class="mb-3 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-700"><i data-lucide="arrow-left" class="h-4 w-4"></i>Gudang</a>
+    @include('warehouses.partials.nav', ['back' => ['Gudang', route('warehouses.index')]])
     <div class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div class="flex items-center gap-3">
             <span class="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-teal-600 text-white shadow-sm"><i data-lucide="clipboard-list" class="h-6 w-6"></i></span>
