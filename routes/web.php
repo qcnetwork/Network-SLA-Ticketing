@@ -25,6 +25,7 @@ use App\Http\Controllers\TicketController;
 use App\Http\Controllers\TicketShareController;
 use App\Http\Controllers\TrackingController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\RemovedDeviceController;
 use App\Http\Controllers\StockAdjustmentController;
 use App\Http\Controllers\WarehouseController;
 use Illuminate\Support\Facades\Route;
@@ -120,6 +121,8 @@ Route::middleware('auth')->group(function () {
     Route::middleware('menu:warehouse')->group(function () {
         Route::get('/gudang', [WarehouseController::class, 'index'])->name('warehouses.index');
         Route::get('/gudang/{warehouse}', [WarehouseController::class, 'show'])->whereNumber('warehouse')->name('warehouses.show');
+        // A technician's whole stock with every SN on one plain page, for the 4 pm closing screenshot.
+        Route::get('/gudang/{warehouse}/screenshot', [WarehouseController::class, 'snapshot'])->whereNumber('warehouse')->name('warehouses.snapshot');
         // One category's stock in a warehouse, browsed by jenis → merk → model.
         Route::get('/gudang/{warehouse}/stok/{category}', [WarehouseController::class, 'category'])->whereNumber('warehouse')->name('warehouses.category');
         // Technicians check scans against their own stock; see lookupSerial.
@@ -154,6 +157,18 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::get('/telegram-logs', [ReportController::class, 'telegramLogs'])->middleware('menu:telegram_logs')->name('telegram.logs');
+
+    // Alat cabutan: everyone involved sees the report (a technician only their own); the warehouse team and
+    // supervisors receive and check the devices.
+    Route::middleware('role:GUDANG,SPV,HELPDESK,TEKNISI')->group(function () {
+        Route::get('/gudang/cabutan', [RemovedDeviceController::class, 'index'])->name('removed-devices.index');
+        Route::get('/gudang/cabutan/export', [RemovedDeviceController::class, 'export'])->name('removed-devices.export');
+    });
+    Route::middleware('role:GUDANG,SPV')->group(function () {
+        Route::post('/gudang/cabutan/{removedDevice}/terima', [RemovedDeviceController::class, 'receive'])->name('removed-devices.receive');
+        Route::post('/gudang/cabutan/{removedDevice}/tidak-kembali', [RemovedDeviceController::class, 'missing'])->name('removed-devices.missing');
+        Route::post('/gudang/cabutan/{removedDevice}/cek', [RemovedDeviceController::class, 'check'])->name('removed-devices.check');
+    });
 
     // Manual stock corrections: warehouse team and supervisors only; the log on that page is for supervisors.
     Route::middleware('role:GUDANG,SPV')->group(function () {

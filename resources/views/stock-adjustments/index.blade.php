@@ -38,7 +38,7 @@
 
             <form method="GET" class="mb-4">
                 <label class="label" for="gudang">Gudang</label>
-                <select id="gudang" name="gudang" class="input" onchange="this.form.submit()">
+                <select id="gudang" name="gudang" class="input" x-data @change="$el.form.submit()">
                     @foreach ($warehouses as $option)
                         <option value="{{ $option->id }}" @selected($warehouse?->id === $option->id)>{{ $option->name }}{{ $option->isMain() ? '' : ' (teknisi)' }}</option>
                     @endforeach
@@ -109,7 +109,7 @@
                         @if (request('gudang'))
                             <input type="hidden" name="gudang" value="{{ request('gudang') }}">
                         @endif
-                        <select name="log_gudang" class="input sm:w-56" onchange="this.form.submit()">
+                        <select name="log_gudang" class="input sm:w-56" x-data @change="$el.form.submit()">
                             <option value="">Semua gudang</option>
                             @foreach ($warehouses as $option)
                                 <option value="{{ $option->id }}" @selected((string) request('log_gudang') === (string) $option->id)>{{ $option->name }}</option>

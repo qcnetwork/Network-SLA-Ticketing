@@ -14,6 +14,7 @@
         </div>
     </div>
     <div class="flex shrink-0 flex-wrap gap-2">
+        <a href="{{ route('warehouses.snapshot', $warehouse) }}" class="btn-secondary"><i data-lucide="camera" class="h-4 w-4"></i>Screenshot Stok</a>
         <a href="{{ route('usages.index', $canManage ? ['stok' => $warehouse->id] : []) }}" class="btn-secondary"><i data-lucide="clipboard-list" class="h-4 w-4"></i>Riwayat Pemakaian</a>
         @if (auth()->user()->role === App\Enums\Role::TEKNISI)
             <a href="{{ route('usages.create') }}" class="btn-primary"><i data-lucide="plus" class="h-4 w-4"></i>Catat Pemakaian</a>
@@ -44,6 +45,29 @@
                                     <span class="block text-xs text-rose-700">Ditolak {{ $rejected->reviewer?->name ?? 'Gudang' }}: {{ $rejected->review_notes }}</span>
                                 </span>
                                 <a href="{{ route('tickets.show', $rejectedTicket) }}" class="btn-secondary text-xs">Ajukan Ulang</a>
+                            </li>
+                        @endforeach
+                    </ul>
+                </section>
+            @endif
+            @if ($removedDevices->isNotEmpty())
+                <section class="card border-amber-200 p-5">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <h2 class="flex items-center gap-2 font-semibold text-amber-800"><i data-lucide="unplug" class="h-4 w-4"></i>Alat Cabutan, Serahkan ke Gudang ({{ $removedDevices->count() }})</h2>
+                        <a href="{{ route('removed-devices.index', $canManage ? ['teknisi' => $warehouse->user_id] : []) }}" class="text-xs font-semibold text-indigo-700 hover:underline">Lihat semua</a>
+                    </div>
+                    <ul class="divide-y divide-slate-100 text-sm">
+                        @foreach ($removedDevices as $device)
+                            <li class="flex flex-wrap items-center justify-between gap-2 py-2">
+                                <span>
+                                    <span class="font-medium text-slate-800">{{ $device->name }}</span>
+                                    <span class="block text-xs text-slate-500">
+                                        {{ collect([$device->serial_number ? "SN {$device->serial_number}" : null, $device->customer_name, $device->ticket?->ticket_number])->filter()->implode(' · ') }}
+                                    </span>
+                                </span>
+                                <span class="text-xs {{ $device->isOverdue() ? 'font-bold text-rose-600' : 'text-slate-500' }}">
+                                    {{ $device->isOverdue() ? 'Terlambat '.$device->due_at->diffForHumans(now(), true) : 'Batas '.$device->due_at->format('d/m H:i') }}
+                                </span>
                             </li>
                         @endforeach
                     </ul>

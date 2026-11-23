@@ -15,7 +15,8 @@ class TicketPolicy
             return $this->worksOn($user, $ticket) || $ticket->isSharedWith($user) || $this->resubmitMaterial($user, $ticket);
         }
         if ($user->role === Role::GUDANG) {
-            return $ticket->materialRequests()->exists();
+            // Tickets the warehouse has business with: material to approve, or devices taken off the customer.
+            return $ticket->materialRequests()->exists() || $ticket->removedDevices()->exists();
         }
 
         return true;

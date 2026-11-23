@@ -286,6 +286,29 @@
                             </dd>
                         </div>
                     @endif
+                    @if ($ticket->removedDevices->isNotEmpty())
+                        <div class="sm:col-span-2">
+                            <dt class="text-xs text-slate-500">Alat Dicabut</dt>
+                            <dd class="mt-1 divide-y divide-slate-100 rounded-lg bg-slate-50 px-3">
+                                @foreach ($ticket->removedDevices as $device)
+                                    <div class="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                                        <span>
+                                            <span class="font-medium text-slate-800">{{ $device->name }}{{ $device->quantity > 1 ? " × {$device->quantity}" : '' }}</span>
+                                            <span class="block text-xs text-slate-500">{{ collect([$device->serial_number ? "SN {$device->serial_number}" : null, $device->formattedMac() ? 'MAC '.$device->formattedMac() : null, $device->fieldConditionLabel(), 'dibawa '.($device->technician?->name ?? '-')])->filter()->implode(' · ') }}</span>
+                                        </span>
+                                        <span class="text-right text-xs">
+                                            <span class="badge {{ $device->status->badgeClasses() }}">{{ $device->status->label() }}</span>
+                                            @if ($device->isOverdue())
+                                                <span class="mt-0.5 block font-semibold text-rose-600">Lewat batas {{ $device->due_at->format('d/m H:i') }}</span>
+                                            @elseif ($device->status === App\Enums\RemovedDeviceStatus::DIBAWA)
+                                                <span class="mt-0.5 block text-slate-500">Serahkan sebelum {{ $device->due_at->format('d/m H:i') }}</span>
+                                            @endif
+                                        </span>
+                                    </div>
+                                @endforeach
+                            </dd>
+                        </div>
+                    @endif
                 </dl>
             </section>
 
@@ -443,6 +466,7 @@
                         <textarea name="notes" rows="4" class="input" required placeholder="Tindakan fisik: splicing FO, ganti konektor, redaman akhir, dll">{{ old('notes') }}</textarea>
 
                         @include('tickets.partials.material-lines')
+                        @include('tickets.partials.removed-device-lines')
 
                         <x-photo-input id="repair_photos" />
                         <button class="btn-success w-full"><i data-lucide="check-circle-2" class="h-4 w-4"></i>Kirim Laporan Selesai</button>

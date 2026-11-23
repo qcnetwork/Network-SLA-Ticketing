@@ -40,7 +40,19 @@
         ['Menunggu ACC', $materialRequests->count(), 'hourglass', $materialRequests->isEmpty() ? 'slate' : 'amber', 'pengajuan material'],
     ]])
 
-    @php($minusCount = auth()->user()->hasRole(App\Enums\Role::GUDANG, App\Enums\Role::SPV) ? App\Models\Stock::query()->where('quantity', '<', 0)->count() : 0)
+    @php($lateDevices = App\Models\RemovedDevice::query()->overdue()->count())
+    @if ($lateDevices)
+        <a href="{{ route('removed-devices.index', ['status' => 'terlambat']) }}" class="mb-3 flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 transition hover:border-amber-400">
+            <i data-lucide="unplug" class="h-5 w-5 shrink-0 text-amber-600"></i>
+            <span class="flex-1"><b>{{ $lateDevices }} alat cabutan</b> belum kembali ke gudang lewat {{ App\Models\RemovedDevice::DAYS_TO_RETURN }} hari.</span>
+            <span class="flex shrink-0 items-center gap-1 font-semibold">Lihat<i data-lucide="arrow-right" class="h-4 w-4"></i></span>
+        </a>
+    @endif
+    @unless ($canManage)
+        <a href="{{ route('removed-devices.index') }}" class="mb-6 inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-700 hover:underline"><i data-lucide="unplug" class="h-4 w-4"></i>Laporan Alat Cabutan</a>
+    @endunless
+
+    @php($minusCount =auth()->user()->hasRole(App\Enums\Role::GUDANG, App\Enums\Role::SPV) ? App\Models\Stock::query()->where('quantity', '<', 0)->count() : 0)
     @if ($minusCount)
         <a href="{{ route('stock-adjustments.index') }}" class="mb-6 flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 transition hover:border-rose-300">
             <i data-lucide="alert-triangle" class="h-5 w-5 shrink-0 text-rose-600"></i>
@@ -296,14 +308,17 @@
                     @forelse ($technicianWarehouses as $warehouse)
                         @php($holder = $warehouse->user?->name ?? $warehouse->name)
                         @php($empty = (int) $warehouse->stocks_sum_quantity === 0)
-                        <li x-show="@js(Str::upper($holder)).includes(find.toUpperCase()) && (@js(! $empty) || showEmpty || find !== '')">
-                            <a href="{{ route('warehouses.show', $warehouse) }}" class="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-indigo-50/60">
+                        <li x-show="@js(Str::upper($holder)).includes(find.toUpperCase()) && (@js(! $empty) || showEmpty || find !== '')" class="flex items-center gap-1">
+                            <a href="{{ route('warehouses.show', $warehouse) }}" class="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-indigo-50/60">
                                 <span class="grid h-8 w-8 shrink-0 place-items-center rounded-full {{ $empty ? 'bg-slate-100 text-slate-400' : 'bg-indigo-100 text-indigo-700' }} text-xs font-bold">{{ Str::upper(Str::substr($holder, 0, 2)) }}</span>
                                 <span class="min-w-0 flex-1">
                                     <span class="block truncate font-medium {{ $empty ? 'text-slate-500' : 'text-slate-800' }}">{{ $holder }}</span>
                                     <span class="text-xs text-slate-500">{{ $warehouse->stocks_count }} jenis · {{ $warehouse->serial_units_count }} SN</span>
                                 </span>
                                 <span class="shrink-0 text-right text-sm font-bold {{ $empty ? 'text-slate-300' : 'text-slate-800' }}">{{ number_format((int) $warehouse->stocks_sum_quantity, 0, ',', '.') }}</span>
+                            </a>
+                            <a href="{{ route('warehouses.snapshot', $warehouse) }}" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-700" title="Screenshot stok {{ $holder }}">
+                                <i data-lucide="camera" class="h-4 w-4"></i>
                             </a>
                         </li>
                     @empty

@@ -16,6 +16,8 @@ Schedule::command('tickets:telegram-list')->dailyAt('00:01');
 Schedule::command('db:backup')->dailyAt('23:30')->withoutOverlapping();
 // Catches up stock movements the Google Sheet missed while it or the internet was down.
 Schedule::command('inventory:sync-sheet')->everyFiveMinutes()->withoutOverlapping();
+// Removed devices still with a technician past the deadline: the warehouse is reminded, once a day per device.
+Schedule::command('removed-devices:remind')->hourly()->withoutOverlapping();
 // The bell only shows the latest few; read notices older than a month are just weight.
 Schedule::call(fn () => DB::table('notifications')->whereNotNull('read_at')->where('created_at', '<', now()->subDays(30))->delete())
     ->daily()->name('prune-read-notifications');

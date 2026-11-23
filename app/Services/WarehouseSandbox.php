@@ -30,7 +30,7 @@ class WarehouseSandbox
     public const TABLES = [
         'partners', 'item_categories', 'warehouses', 'items', 'sales', 'sale_lines',
         'material_requests', 'material_usages', 'serial_units', 'material_request_lines',
-        'material_usage_lines', 'stocks', 'stock_movements', 'stock_adjustments', 'gudang_pelanggan', 'gudang_pelanggan_logs',
+        'material_usage_lines', 'stocks', 'stock_movements', 'stock_adjustments', 'gudang_pelanggan', 'gudang_pelanggan_logs', 'removed_devices',
     ];
 
     private const CONNECTION = 'warehouse_stash';

@@ -167,6 +167,12 @@ class Ticket extends Model
         return $this->hasMany(MaterialRequest::class)->orderBy('id');
     }
 
+    /** Devices taken off the customer on this ticket (alat cabutan). */
+    public function removedDevices(): HasMany
+    {
+        return $this->hasMany(RemovedDevice::class)->orderBy('id');
+    }
+
     /**
      * The warehouse turned down the latest material and nothing has been sent again since.
      */

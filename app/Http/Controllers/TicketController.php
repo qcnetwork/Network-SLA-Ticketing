@@ -13,6 +13,7 @@ use App\Models\Customer;
 use App\Models\Incident;
 use App\Models\MaterialRequestLine;
 use App\Models\ModemType;
+use App\Models\RemovedDevice;
 use App\Models\SerialUnit;
 use App\Models\ServicePackage;
 use App\Models\Stock;
@@ -108,7 +109,7 @@ class TicketController extends Controller
     {
         $this->authorize('view', $ticket);
 
-        $ticket->load(['creator', 'helpdesk', 'technicians', 'incident', 'histories.user', 'histories.attachments', 'materialRequests.lines.item', 'materialRequests.lines.warehouse', 'materialRequests.lines.serialUnit', 'materialRequests.requester', 'materialRequests.reviewer']);
+        $ticket->load(['creator', 'helpdesk', 'technicians', 'incident', 'histories.user', 'histories.attachments', 'materialRequests.lines.item', 'materialRequests.lines.warehouse', 'materialRequests.lines.serialUnit', 'materialRequests.requester', 'materialRequests.reviewer', 'removedDevices.technician']);
         $user = request()->user();
         if ($ticket->isInstallation()) {
             return $this->showInstallation($ticket, $user);
@@ -257,8 +258,17 @@ class TicketController extends Controller
             'odp_distance' => ['nullable', 'integer', 'min:1', 'max:100000'],
             'customer_code' => ['nullable', 'string', 'max:50'],
             ...self::MATERIAL_RULES,
+            // The repair resume must say whether anything was taken off the customer; what it was is typed by hand.
+            'removed_any' => [Rule::requiredIf($action === TicketAction::LAPOR_PERBAIKAN_SELESAI), 'nullable', Rule::in(['ya', 'tidak'])],
+            'removed_devices' => ['nullable', 'array', 'max:10'],
+            'removed_devices.*.name' => ['nullable', 'string', 'max:150'],
+            'removed_devices.*.serial' => ['nullable', 'string', 'max:100'],
+            'removed_devices.*.mac' => ['nullable', 'string', 'max:30'],
+            'removed_devices.*.quantity' => ['nullable', 'integer', 'min:1', 'max:1000'],
+            'removed_devices.*.condition' => ['nullable', Rule::in(array_keys(RemovedDevice::FIELD_CONDITIONS))],
+            'removed_devices.*.notes' => ['nullable', 'string', 'max:255'],
             ...DocumentationPhotoStore::rules(),
-        ], DocumentationPhotoStore::MESSAGES);
+        ], ['removed_any.required' => 'Jawab dulu: ada alat yang dicabut dari pelanggan?'] + DocumentationPhotoStore::MESSAGES);
 
         $ticket = $this->workflow->transition($ticket, $action, $request->user(), $data);
 

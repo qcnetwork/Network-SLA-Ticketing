@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Enums\MaterialRequestStatus;
 use App\Enums\Menu;
+use App\Enums\RemovedDeviceStatus;
 use App\Enums\Role;
 use App\Models\Item;
 use App\Models\ItemCategory;
 use App\Models\MaterialRequest;
 use App\Models\MaterialRequestLine;
+use App\Models\RemovedDevice;
 use App\Models\SerialUnit;
 use App\Models\Stock;
 use App\Models\StockMovement;
@@ -79,11 +81,48 @@ class WarehouseController extends Controller
                     ->with('materialRequests.reviewer')->latest('updated_at')->get()
                     ->filter->awaitsMaterialResubmission()->values()
                 : collect(),
+            // Devices this technician took off customers and still has to hand in.
+            'removedDevices' => $warehouse->user_id
+                ? RemovedDevice::query()->where('technician_id', $warehouse->user_id)->where('status', RemovedDeviceStatus::DIBAWA)->with('ticket')->orderBy('due_at')->get()
+                : collect(),
             ...$this->stockPage($request, $warehouse),
             // What the technician holds, for the return form.
             'catalog' => $this->catalog(Item::query()->whereHas('stocks', fn ($q) => $q->where('warehouse_id', $warehouse->id)->where('quantity', '>', 0))
                 ->addSelect(['items.*', 'held' => $this->heldIn($warehouse)])->get(), $warehouse),
             'canManage' => $user->canAccess(Menu::WAREHOUSE_MANAGE),
+        ]);
+    }
+
+    /**
+     * A technician's whole stock on one plain page, every SN shown, nothing to click: the warehouse screenshots it
+     * at closing (4 pm) as the day's record. Minus stock, material waiting for approval and removed devices
+     * still to hand in are on it too, so the picture is complete.
+     */
+    public function snapshot(Request $request, Warehouse $warehouse): View|RedirectResponse
+    {
+        $user = $request->user();
+        abort_if($user->role === Role::TEKNISI && $warehouse->user_id !== $user->id, 403);
+        // The main warehouse holds thousands of SNs: no single screenshot can carry it.
+        if ($warehouse->isMain()) {
+            return redirect()->route('warehouses.index');
+        }
+        $order = ItemCategory::query()->pluck('sort_order', 'id');
+
+        return view('warehouses.snapshot', [
+            'warehouse' => $warehouse->load('user'),
+            'withMac' => $request->boolean('mac'),
+            'stocks' => $warehouse->stocks()->where('quantity', '!=', 0)->with('item.category')->get()
+                ->sortBy(fn (Stock $stock) => sprintf('%05d %s', $order[$stock->item->item_category_id] ?? 99999, $stock->item->code))
+                ->groupBy(fn (Stock $stock) => $stock->item->category?->name ?? 'Tanpa kategori'),
+            'units' => $warehouse->serialUnits()->orderBy('serial_number')->get(['id', 'item_id', 'serial_number', 'mac'])->groupBy('item_id'),
+            'pending' => MaterialRequestLine::query()->pending()->where('warehouse_id', $warehouse->id)
+                ->with(['item', 'serialUnit', 'request.ticket'])->get(),
+            'removedDevices' => $warehouse->user_id
+                ? RemovedDevice::query()->where('technician_id', $warehouse->user_id)->where('status', RemovedDeviceStatus::DIBAWA)->with('ticket')->orderBy('due_at')->get()
+                : collect(),
+            'others' => $user->canAccess(Menu::WAREHOUSE_MANAGE)
+                ? Warehouse::query()->technicians()->with('user')->get()->sortBy(fn (Warehouse $w) => $w->user?->name ?? $w->name)->values()
+                : collect(),
         ]);
     }
 

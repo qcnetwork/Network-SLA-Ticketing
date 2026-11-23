@@ -7,6 +7,7 @@
         ['Cari SN', 'tracking.index', 'scan-barcode', ['tracking.*']],
         ['Gudang Pelanggan', 'customer-materials.index', 'house', ['customer-materials.*']],
         ['Pemakaian Alat', 'usages.index', 'clipboard-list', ['usages.*']],
+        ['Alat Cabutan', 'removed-devices.index', 'unplug', ['removed-devices.*']],
         ['Penjualan', 'sales.index', 'receipt', ['sales.*']],
         ['Mitra', 'partners.index', 'handshake', ['partners.*']],
         ['Master Barang', 'items.index', 'boxes', ['items.*']],

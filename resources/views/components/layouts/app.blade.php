@@ -14,7 +14,7 @@
         $user->canAccess(Menu::ARCHIVE)
             ? ['route' => 'archive.index', 'label' => 'Arsip', 'icon' => 'archive', 'active' => 'archive.*'] : null,
         $user->canAccess(Menu::WAREHOUSE)
-            ? ['route' => 'warehouses.index', 'label' => $user->role === Role::TEKNISI ? 'Stok Saya' : 'Gudang', 'icon' => 'warehouse', 'active' => ['warehouses.*', 'items.*', 'sales.*', 'partners.*', 'usages.*', 'stock-adjustments.*']] : null,
+            ? ['route' => 'warehouses.index', 'label' => $user->role === Role::TEKNISI ? 'Stok Saya' : 'Gudang', 'icon' => 'warehouse', 'active' => ['warehouses.*', 'items.*', 'sales.*', 'partners.*', 'usages.*', 'stock-adjustments.*', 'removed-devices.*']] : null,
     ]));
     $more = array_values(array_filter([
         $user->canAccess(Menu::REPORTS)

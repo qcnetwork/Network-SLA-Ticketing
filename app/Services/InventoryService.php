@@ -567,6 +567,44 @@ class InventoryService
      * Mark a sale paid (or back to unpaid when it was ticked by mistake).
      */
     /**
+     * A used device that came back from the field and was checked fit for use re-enters the main warehouse
+     * (RETUR from no warehouse: "back from a customer"). An SN item comes back as its known unit, or is
+     * registered when the SN is new to the system; a counted item comes back by quantity.
+     */
+    public function takeBackFromField(Item $item, int $quantity, ?string $serialNumber, ?string $mac, User $actor, string $notes, string $condition): ?SerialUnit
+    {
+        return DB::transaction(function () use ($item, $quantity, $serialNumber, $mac, $actor, $notes, $condition) {
+            $main = Warehouse::main();
+            if (! $item->tracks_serial) {
+                $this->move(StockMovementType::RETUR, $item, max(1, $quantity), null, $main, $actor, $notes);
+
+                return null;
+            }
+
+            $number = SerialUnit::normalizeSerial($serialNumber);
+            if ($number === '') {
+                throw ValidationException::withMessages(['serial_number' => "{$item->code} memakai SN, isi SN alat cabutan ini"]);
+            }
+            if (filled($mac) && SerialUnit::normalizeMac($mac) === null) {
+                throw ValidationException::withMessages(['mac' => "MAC tidak valid: {$mac}"]);
+            }
+            $unit = SerialUnit::query()->lockForUpdate()->with('warehouse')->where('serial_number', $number)->first();
+            if ($unit?->warehouse) {
+                throw ValidationException::withMessages(['serial_number' => "SN {$number} tercatat masih ada di {$unit->warehouse->name}"]);
+            }
+            $unit ??= SerialUnit::query()->create(['item_id' => $item->id, 'serial_number' => $number]);
+            $unit->update([
+                'warehouse_id' => $main->id, 'ticket_id' => null, 'material_usage_id' => null,
+                'mac' => SerialUnit::normalizeMac($mac) ?? $unit->mac,
+                'condition' => mb_substr($condition, 0, 255),
+            ]);
+            $this->move(StockMovementType::RETUR, $unit->item, 1, null, $main, $actor, $notes, serial: $unit);
+
+            return $unit;
+        });
+    }
+
+    /**
      * Set a warehouse's stock of an item to the figure actually counted, e.g. a technician's stock gone minus
      * after more was entered than they held. The difference is a PENYESUAIAN movement, and the figure before,
      * after and the reason go to the adjustment log that only supervisors read. An SN item can only be set as

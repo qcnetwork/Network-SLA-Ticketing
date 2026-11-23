@@ -10,6 +10,7 @@ use App\Enums\TicketPriority;
 use App\Enums\TicketStatus;
 use App\Models\Customer;
 use App\Models\Incident;
+use App\Models\RemovedDevice;
 use App\Models\Setting;
 use App\Models\Ticket;
 use App\Models\User;
@@ -393,8 +394,13 @@ class TicketWorkflowService
                     $ticket->technician_notes = $notes ?? 'Perbaikan fisik di lokasi telah selesai.';
                     $ticket->resolved_at = $now;
                     $materials = $this->inventory->requestForTicket($ticket, $data['materials'] ?? [], $actor);
+                    // Devices taken off the customer: carried by the technician until the warehouse receives them.
+                    $removed = ($data['removed_any'] ?? null) === 'ya'
+                        ? app(RemovedDeviceService::class)->recordFromResume($ticket, $data['removed_devices'] ?? [], $actor)
+                        : collect();
                     $description = "Teknisi [{$this->repairCrew($ticket, $actor)}] menyelesaikan perbaikan: {$ticket->technician_notes}"
                         .($materials->isNotEmpty() ? "\nMaterial terpakai (menunggu ACC Gudang, stok belum berkurang):\n".$materials->map(fn (string $line) => "• {$line}")->implode("\n") : '')
+                        .($removed->isNotEmpty() ? "\nAlat dicabut (wajib diserahkan ke Gudang paling lambat ".now()->addDays(RemovedDevice::DAYS_TO_RETURN)->format('d/m/Y H:i')."):\n".$removed->map(fn (string $line) => "• {$line}")->implode("\n") : '')
                         .$this->recordedOnBehalf($actor);
                     break;
 

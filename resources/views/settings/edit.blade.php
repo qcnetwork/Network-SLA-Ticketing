@@ -134,7 +134,7 @@
                 @if (filled($settings['sheets_secret']))
                     <div>
                         <span class="label">Kode rahasia (salin ke <span class="font-mono">SECRET</span> di Apps Script)</span>
-                        <input readonly value="{{ $settings['sheets_secret'] }}" class="input bg-slate-50 font-mono text-xs" onfocus="this.select()">
+                        <input readonly value="{{ $settings['sheets_secret'] }}" class="input bg-slate-50 font-mono text-xs" x-data @focus="$el.select()">
                     </div>
                 @endif
                 <div class="flex flex-wrap items-center justify-between gap-2">
